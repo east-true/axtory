@@ -28,6 +28,12 @@ import { assertSanitizedCodexReport, runCodexContractSpike } from "./connectors/
 import { discoverCodex } from "./connectors/codex/discovery.js";
 import { createCodexHomeSnapshot } from "./connectors/codex/snapshot.js";
 import { writeJsonAtomically } from "./core/output.js";
+import { collectWorkSystem, renderWorkSystemCollection } from "./connectors/work-systems/collector.js";
+import { GitHubWorkSystemApi } from "./connectors/work-systems/github.js";
+import { GitLabWorkSystemApi } from "./connectors/work-systems/gitlab.js";
+import { JiraWorkSystemApi } from "./connectors/work-systems/jira.js";
+import { LinearWorkSystemApi } from "./connectors/work-systems/linear.js";
+import { discoverWorkSystem, type WorkSystemApi } from "./connectors/work-systems/types.js";
 
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -36,6 +42,18 @@ function option(args: readonly string[], name: string): string | undefined {
 
 function options(args: readonly string[], name: string): string[] {
   return args.flatMap((value, index) => value === name && args[index + 1] ? [args[index + 1]!] : []);
+}
+
+function positiveInteger(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function environmentValue(args: readonly string[], flag: string, defaultName: string): string | undefined {
+  const name = option(args, flag) ?? defaultName;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) throw new Error(`${flag} must name an environment variable`);
+  return process.env[name];
 }
 
 async function openDataDatabase(path: string): Promise<AxtoryDatabase> {
@@ -226,6 +244,72 @@ async function main(args: readonly string[]): Promise<void> {
       `from ${summary.documentsAnalyzed} assistant messages.\n${summary.limitation}\n`);
     return;
   }
+  if (command === "collect-work-system") {
+    const literalCredentialFlags = ["--token", "--api-token", "--email"];
+    if (args.some((value) => literalCredentialFlags.some((flag) => value === flag || value.startsWith(`${flag}=`)))) {
+      throw new Error("work-system credentials must be supplied through environment variables, not CLI values");
+    }
+    const provider = option(args, "--provider")?.toLowerCase();
+    const dataDirectory = option(args, "--data-dir");
+    const jsonOutputPath = option(args, "--json-out");
+    if (!provider || !dataDirectory || !jsonOutputPath) {
+      throw new Error("collect-work-system requires --provider, --data-dir, and --json-out");
+    }
+    const baseUrl = option(args, "--base-url");
+    let api: WorkSystemApi;
+    let hasCredential = false;
+    if (provider === "github") {
+      const repository = option(args, "--repository")?.split("/");
+      if (repository?.length !== 2 || !repository[0] || !repository[1]) {
+        throw new Error("GitHub collection requires --repository OWNER/REPOSITORY");
+      }
+      const token = environmentValue(args, "--token-env", "GITHUB_TOKEN");
+      hasCredential = Boolean(token);
+      api = new GitHubWorkSystemApi({
+        owner: repository[0], repository: repository[1],
+        ...(token ? { token } : {}), ...(baseUrl ? { baseUrl } : {}),
+      });
+    } else if (provider === "gitlab") {
+      const project = option(args, "--project");
+      if (!project) throw new Error("GitLab collection requires --project");
+      const token = environmentValue(args, "--token-env", "GITLAB_TOKEN");
+      hasCredential = Boolean(token);
+      api = new GitLabWorkSystemApi({ project, ...(token ? { token } : {}), ...(baseUrl ? { baseUrl } : {}) });
+    } else if (provider === "jira") {
+      const projectKey = option(args, "--project");
+      if (!projectKey || !baseUrl) throw new Error("Jira collection requires --project and --base-url");
+      const apiToken = environmentValue(args, "--token-env", "JIRA_API_TOKEN");
+      const email = environmentValue(args, "--email-env", "JIRA_EMAIL");
+      hasCredential = Boolean(apiToken && email);
+      api = new JiraWorkSystemApi({
+        baseUrl, projectKey,
+        ...(apiToken ? { apiToken } : {}), ...(email ? { email } : {}),
+      });
+    } else if (provider === "linear") {
+      const teamId = option(args, "--team-id");
+      if (!teamId) throw new Error("Linear collection requires --team-id");
+      const token = environmentValue(args, "--token-env", "LINEAR_API_KEY");
+      if (!token) throw new Error("Linear API credential is not configured in the selected environment variable");
+      hasCredential = true;
+      api = new LinearWorkSystemApi({ teamId, token, ...(baseUrl ? { baseUrl } : {}) });
+    } else {
+      throw new Error("--provider must be github, gitlab, jira, or linear");
+    }
+    const pageSizeValue = option(args, "--page-size");
+    const maxPagesValue = option(args, "--max-pages");
+    const discovery = discoverWorkSystem({
+      provider: api.provider, scopeIdentity: api.scopeIdentity, hasCredential,
+      supportedKinds: api.supportedKinds,
+    });
+    const output = await collectWorkSystem(api, discovery, {
+      dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
+      ...(pageSizeValue ? { pageSize: positiveInteger(pageSizeValue, "--page-size") } : {}),
+      ...(maxPagesValue ? { maxPages: positiveInteger(maxPagesValue, "--max-pages") } : {}),
+      ...(option(args, "--git-revision-id") ? { gitRevisionId: option(args, "--git-revision-id")! } : {}),
+    });
+    process.stdout.write(renderWorkSystemCollection(output));
+    return;
+  }
   if (command === "collect-git") {
     const repositoryDirectory = option(args, "--repo-dir");
     const dataDirectory = option(args, "--data-dir");
@@ -345,7 +429,7 @@ async function main(args: readonly string[]): Promise<void> {
     return;
   }
   if (command !== "collect-fixture") {
-    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
+    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
   }
   const fixture = option(args, "--fixture");
   const dataDirectory = option(args, "--data-dir");
