@@ -149,3 +149,22 @@ export const OTEL_METRIC_CATALOG = {
     formulaVersion: "1", limitations: ["This does not establish causal attribution."],
   },
 } as const satisfies Record<string, MetricDefinition>;
+
+const workMetric = (key: string, description: string): MetricDefinition => ({
+  key, description, unit: "count", derivation: "CALCULATED", aggregation: "SUM",
+  requiredSource: "Work-system official API returned view", formulaVersion: "1",
+  limitations: ["Counts describe returned artifacts and do not establish completion, quality, or AI attribution."],
+});
+
+export const WORK_METRIC_CATALOG = {
+  "work.change_request.count": workMetric("work.change_request.count", "Change requests in the returned view"),
+  "work.change_request.merged.count": workMetric("work.change_request.merged.count", "Merged change requests"),
+  "work.ci_run.count": workMetric("work.ci_run.count", "CI runs in the returned view"),
+  "work.ci_run.succeeded.count": workMetric("work.ci_run.succeeded.count", "Successful CI runs"),
+  "work.ci_run.failed.count": workMetric("work.ci_run.failed.count", "Failed CI runs"),
+  "work.deployment.count": workMetric("work.deployment.count", "Deployments in the returned view"),
+  "work.deployment.succeeded.count": workMetric("work.deployment.succeeded.count", "Successful deployments"),
+  "work.deployment.failed.count": workMetric("work.deployment.failed.count", "Failed deployments"),
+  "work.item.count": workMetric("work.item.count", "Work items in the returned view"),
+  "work.item.completed.count": workMetric("work.item.completed.count", "Completed work items"),
+} as const satisfies Record<string, MetricDefinition>;
