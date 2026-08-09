@@ -130,6 +130,7 @@ export async function collectCodexHistory(
         if (projection.messageCoverage === "PARTIAL_PAGINATION") partialItemViews += 1;
         if (projection.messageCoverage === "PARTIAL_SOURCE_CHANGED") sourceChangedViews += 1;
         revisionIds.push(unchangedRevisionId);
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, unchangedRevisionId, timestamp());
         revisionsUnchanged += 1;
         continue;
       }
@@ -174,6 +175,7 @@ export async function collectCodexHistory(
           sourceModifiedAt: epochSeconds(detail.updatedAt),
         });
         database.insertObservations(normalizeCodexThread(detail, revisionId, coverage));
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
       });
       projections.push(projectSession(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);

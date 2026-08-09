@@ -115,6 +115,7 @@ export async function collectAdditionalAiSource(
         if (api.provider === "AIDER") unstructuredViews += 1;
         else if (api.provider === "GEMINI_CLI" || api.provider === "CURSOR") metadataOnlyViews += 1;
         else structuredViews += 1;
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, unchangedRevisionId, timestamp());
         revisionsUnchanged += 1;
         continue;
       }
@@ -147,6 +148,7 @@ export async function collectAdditionalAiSource(
           sourceModifiedAt: view.summary.sourceUpdatedAt,
         });
         database.insertObservations(normalizeAdditionalAiSession(view, revisionId));
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
       });
       projections.push(projectSession(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);

@@ -105,6 +105,7 @@ export async function collectWorkSystem(
         if (!database.rawObservationForRevision(unchangedRevisionId)) missingRawRevisions.add(unchangedRevisionId);
         projections.push(projectWorkArtifact(database.observationsForRevision(unchangedRevisionId)));
         revisionIds.push(unchangedRevisionId);
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, unchangedRevisionId, timestamp());
         revisionsUnchanged += 1;
         continue;
       }
@@ -143,6 +144,7 @@ export async function collectWorkSystem(
           sourceModifiedAt: artifact.sourceUpdatedAt,
         });
         database.insertObservations(normalizeWorkArtifact(artifact, revisionId));
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
       });
       projections.push(projectWorkArtifact(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);

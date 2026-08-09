@@ -64,6 +64,7 @@ export async function collectLocalGit(options: {
         payloadReference: blob.relativePath, observedAt: timestamp(), sourceModifiedAt: null,
       });
       database.insertObservations(normalizeLocalGitSnapshot(snapshot, revisionId));
+      database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
     });
     let correlations = 0;
     if (options.sessionRevisionId) {

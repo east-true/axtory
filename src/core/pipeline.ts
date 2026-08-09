@@ -72,6 +72,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
         sourceModifiedAt: fixture.sourceModifiedAt ?? null,
       });
       database.insertObservations(normalizeClaudeHistoryFixture(fixture, revisionId));
+      database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
     });
     const observations = database.observationsForRevision(revisionId);
     const sessionProjection = projectSession(observations);

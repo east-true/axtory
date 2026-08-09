@@ -44,8 +44,17 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 3) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 3) return;
+    if (version.user_version > 5) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 5) return;
+    if (version.user_version === 4) {
+      this.migrateToVersion5();
+      return;
+    }
+    if (version.user_version === 3) {
+      this.migrateToVersion4();
+      this.migrateToVersion5();
+      return;
+    }
     if (version.user_version === 1) {
       this.db.exec(`
         BEGIN IMMEDIATE;
@@ -194,6 +203,52 @@ export class AxtoryDatabase {
       PRAGMA user_version = 3;
       COMMIT;
     `);
+    this.migrateToVersion4();
+    this.migrateToVersion5();
+  }
+
+  private migrateToVersion4(): void {
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE collection_revision_observations (
+        collection_run_id TEXT NOT NULL REFERENCES collection_runs(id) ON DELETE CASCADE,
+        source_object_id TEXT NOT NULL REFERENCES source_objects(id) ON DELETE CASCADE,
+        source_revision_id TEXT NOT NULL REFERENCES source_revisions(id) ON DELETE CASCADE,
+        observed_at TEXT NOT NULL,
+        PRIMARY KEY(collection_run_id, source_object_id)
+      ) STRICT;
+      CREATE INDEX collection_revision_observations_source_idx
+        ON collection_revision_observations(source_object_id, observed_at DESC);
+      PRAGMA user_version = 4;
+      COMMIT;
+    `);
+  }
+
+  private migrateToVersion5(): void {
+    const sourceObjectColumns = this.db.prepare("PRAGMA table_info(source_objects)").all() as
+      Array<{ name: string }>;
+    const revisionColumns = this.db.prepare("PRAGMA table_info(source_revisions)").all() as
+      Array<{ name: string }>;
+    const canBackfill = sourceObjectColumns.some((item) => item.name === "id") &&
+      revisionColumns.some((item) => item.name === "source_object_id") &&
+      revisionColumns.some((item) => item.name === "collected_at");
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE IF NOT EXISTS legacy_revision_heads (
+        source_object_id TEXT PRIMARY KEY REFERENCES source_objects(id) ON DELETE CASCADE,
+        source_revision_id TEXT NOT NULL REFERENCES source_revisions(id) ON DELETE CASCADE
+      ) STRICT;
+      ${canBackfill ? `INSERT OR IGNORE INTO legacy_revision_heads(source_object_id, source_revision_id)
+        SELECT source_object_id, revision_id FROM (
+          SELECT source_object_id, id AS revision_id,
+            ROW_NUMBER() OVER (
+              PARTITION BY source_object_id ORDER BY collected_at DESC, rowid DESC
+            ) AS revision_rank
+          FROM source_revisions
+        ) WHERE revision_rank = 1;` : ""}
+      PRAGMA user_version = 5;
+      COMMIT;
+    `);
   }
 
   transaction<T>(operation: () => T): T {
@@ -251,6 +306,22 @@ export class AxtoryDatabase {
     return result.changes === 1;
   }
 
+  linkCollectionRevision(
+    collectionRunId: string,
+    sourceObjectId: string,
+    sourceRevisionId: string,
+    observedAt: string,
+  ): void {
+    this.db.prepare(`INSERT INTO collection_revision_observations(
+      collection_run_id, source_object_id, source_revision_id, observed_at
+    ) VALUES (?, ?, ?, ?)
+    ON CONFLICT(collection_run_id, source_object_id) DO UPDATE SET
+      source_revision_id = excluded.source_revision_id,
+      observed_at = excluded.observed_at`).run(
+      collectionRunId, sourceObjectId, sourceRevisionId, observedAt,
+    );
+  }
+
   findRevisionBySourceModifiedAt(sourceObjectId: string, sourceModifiedAt: string): string | null {
     const row = this.db.prepare(`SELECT id FROM source_revisions
       WHERE source_object_id = ? AND source_modified_at = ?
@@ -301,6 +372,79 @@ export class AxtoryDatabase {
       timeQuality: row.time_quality as NormalizedObservation["timeQuality"],
       payload: JSON.parse(row.payload_json!) as Record<string, unknown>,
     }));
+  }
+
+  latestRevisions(): Array<{
+    sourceObjectId: string;
+    sourceType: string;
+    revisionId: string;
+    collectedAt: string;
+    sourceModifiedAt: string | null;
+    headSelection: "COMPLETED_COLLECTION" | "LEGACY_REVISION_ORDER";
+  }> {
+    const rows = this.db.prepare(`WITH linked_ranked AS (
+      SELECT so.id AS source_object_id, so.source_type, sr.id AS revision_id,
+        sr.collected_at, sr.source_modified_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY so.id
+          ORDER BY cr.completed_at DESC, cro.observed_at DESC, cro.rowid DESC
+        ) AS revision_rank
+      FROM collection_revision_observations cro
+      JOIN collection_runs cr ON cr.id = cro.collection_run_id AND cr.status = 'COMPLETED'
+      JOIN source_objects so ON so.id = cro.source_object_id
+      JOIN source_revisions sr ON sr.id = cro.source_revision_id
+    )
+    SELECT source_object_id, source_type, revision_id, collected_at, source_modified_at,
+      'COMPLETED_COLLECTION' AS head_selection
+    FROM linked_ranked WHERE revision_rank = 1
+    UNION ALL
+    SELECT so.id AS source_object_id, so.source_type, sr.id AS revision_id,
+      sr.collected_at, sr.source_modified_at,
+      'LEGACY_REVISION_ORDER' AS head_selection
+    FROM legacy_revision_heads legacy
+    JOIN source_objects so ON so.id = legacy.source_object_id
+    JOIN source_revisions sr ON sr.id = legacy.source_revision_id
+    WHERE so.id NOT IN (SELECT source_object_id FROM linked_ranked)
+    ORDER BY source_type, source_object_id`).all() as Array<Record<string, string | null>>;
+    return rows.map((row) => ({
+      sourceObjectId: row.source_object_id!,
+      sourceType: row.source_type!,
+      revisionId: row.revision_id!,
+      collectedAt: row.collected_at!,
+      sourceModifiedAt: row.source_modified_at ?? null,
+      headSelection: row.head_selection as "COMPLETED_COLLECTION" | "LEGACY_REVISION_ORDER",
+    }));
+  }
+
+  completedAnalysisForExactInputs(
+    analyzerType: string,
+    analyzerVersion: string,
+    inputRevisionIds: readonly string[],
+  ): { analysisRunId: string; records: AnalysisRecord[] } | null {
+    const run = this.db.prepare(`SELECT id FROM analysis_runs
+      WHERE analyzer_type = ? AND analyzer_version = ? AND input_revision_ids_json = ?
+        AND status = 'COMPLETED'
+      ORDER BY completed_at DESC, rowid DESC LIMIT 1`).get(
+      analyzerType, analyzerVersion, canonicalJson(inputRevisionIds),
+    ) as { id: string } | undefined;
+    if (!run) return null;
+    const rows = this.db.prepare(`SELECT id, analysis_run_id, key, record_type, derivation,
+      value_json, unit, availability, reason, evidence_ids_json, evidence_status
+      FROM analysis_records WHERE analysis_run_id = ? ORDER BY key, id`).all(run.id) as
+      Array<Record<string, string | null>>;
+    return {
+      analysisRunId: run.id,
+      records: rows.map((row) => ({
+        id: row.id!, analysisRunId: row.analysis_run_id!, key: row.key!,
+        recordType: row.record_type as AnalysisRecord["recordType"],
+        derivation: row.derivation as AnalysisRecord["derivation"],
+        value: JSON.parse(row.value_json!), unit: row.unit ?? null,
+        availability: row.availability as AnalysisRecord["availability"],
+        reason: row.reason ?? null,
+        evidenceIds: JSON.parse(row.evidence_ids_json!) as string[],
+        evidenceStatus: row.evidence_status as AnalysisRecord["evidenceStatus"],
+      })),
+    };
   }
 
   startAnalysisRun(input: AnalysisRunInput): void {
@@ -550,7 +694,8 @@ export class AxtoryDatabase {
 
   count(table: "collection_runs" | "source_objects" | "source_revisions" | "raw_observations" |
     "normalized_observations" | "analysis_runs" | "analysis_records" | "verification_records" |
-    "user_annotations" | "collection_policies" | "deletion_runs" | "export_runs"): number {
+    "user_annotations" | "collection_policies" | "deletion_runs" | "export_runs" |
+    "collection_revision_observations" | "legacy_revision_heads"): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
     return row.count;
   }

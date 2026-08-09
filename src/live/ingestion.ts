@@ -69,14 +69,16 @@ export async function ingestLiveSpool(options: {
             id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: envelope.receivedAt,
             sourceModifiedAt: null, normalizerVersion: LIVE_NORMALIZER_VERSION, payloadReference: blob.relativePath,
           });
-          if (!created) return;
-          database.insertRawObservation({
-            id: stableId("raw", { revisionId, type: "LIVE_EVENT" }), sourceRevisionId: revisionId,
-            observationType: "LIVE_EVENT", provenance: "OFFICIAL_API",
-            dataClassification: envelope.channel === "CLAUDE_HOOK" ? "TOOL_CONTENT" : "PERSONAL_DATA",
-            payloadReference: blob.relativePath, observedAt: envelope.receivedAt, sourceModifiedAt: null,
-          });
-          database.insertObservations(normalized);
+          if (created) {
+            database.insertRawObservation({
+              id: stableId("raw", { revisionId, type: "LIVE_EVENT" }), sourceRevisionId: revisionId,
+              observationType: "LIVE_EVENT", provenance: "OFFICIAL_API",
+              dataClassification: envelope.channel === "CLAUDE_HOOK" ? "TOOL_CONTENT" : "PERSONAL_DATA",
+              payloadReference: blob.relativePath, observedAt: envelope.receivedAt, sourceModifiedAt: null,
+            });
+            database.insertObservations(normalized);
+          }
+          database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, envelope.receivedAt);
         });
         if (created) {
           ingested += 1;

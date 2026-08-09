@@ -113,6 +113,7 @@ export async function collectClaudeHistory(
         if (projection.messageCoverage !== "COMPLETE_FOR_RETURNED_VIEW") partialMessageViews += 1;
         if (projection.messageCoverage === "PARTIAL_SOURCE_CHANGED") sourceChangedViews += 1;
         revisionIds.push(unchangedRevisionId);
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, unchangedRevisionId, timestamp());
         revisionsUnchanged += 1;
         continue;
       }
@@ -170,6 +171,7 @@ export async function collectClaudeHistory(
           revisionId,
           messageCoverage,
         ));
+        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
       });
       const projection = projectSession(database.observationsForRevision(revisionId));
       projections.push(projection);

@@ -25,7 +25,7 @@ test("schema v1 migrates forward without discarding existing revision rows", asy
     try {
       const version = verifier.prepare("PRAGMA user_version").get() as { user_version: number };
       const revision = verifier.prepare("SELECT id FROM source_revisions").get() as { id: string };
-    assert.equal(version.user_version, 3);
+      assert.equal(version.user_version, 5);
       assert.equal(revision.id, "existing-revision");
     } finally {
       verifier.close();
@@ -74,7 +74,77 @@ test("schema v2 gains trust, policy, and deletion tables without losing analysis
       const row = verifier.prepare(`SELECT evidence_status FROM analysis_records WHERE id = 'record-1'`)
         .get() as { evidence_status: string };
       assert.equal(row.evidence_status, "PRESENT");
-      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 3);
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 5);
+    } finally {
+      verifier.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("schema v3 gains completed-collection revision observations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-migration-v3-"));
+  const path = join(directory, "axtory.sqlite3");
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE collection_runs (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE source_objects (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE source_revisions (id TEXT PRIMARY KEY) STRICT;
+      PRAGMA user_version = 3;
+    `);
+    legacy.close();
+    const migrated = new AxtoryDatabase(path);
+    assert.equal(migrated.count("collection_revision_observations"), 0);
+    migrated.close();
+    const verifier = new DatabaseSync(path, { readOnly: true });
+    try {
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 5);
+    } finally {
+      verifier.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("schema v4 snapshots legacy heads before requiring completed collection observations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-migration-v4-"));
+  const path = join(directory, "axtory.sqlite3");
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE source_objects (id TEXT PRIMARY KEY, source_type TEXT NOT NULL) STRICT;
+      INSERT INTO source_objects VALUES ('source-1', 'CODEX');
+      CREATE TABLE source_revisions (
+        id TEXT PRIMARY KEY,
+        source_object_id TEXT NOT NULL,
+        collected_at TEXT NOT NULL,
+        source_modified_at TEXT
+      ) STRICT;
+      INSERT INTO source_revisions VALUES ('revision-old', 'source-1', '2026-01-01T00:00:00Z', NULL);
+      INSERT INTO source_revisions VALUES ('revision-new', 'source-1', '2026-02-01T00:00:00Z', NULL);
+      CREATE TABLE collection_runs (id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE collection_revision_observations (
+        collection_run_id TEXT NOT NULL,
+        source_object_id TEXT NOT NULL,
+        source_revision_id TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        PRIMARY KEY(collection_run_id, source_object_id)
+      ) STRICT;
+      PRAGMA user_version = 4;
+    `);
+    legacy.close();
+    const migrated = new AxtoryDatabase(path);
+    assert.equal(migrated.count("legacy_revision_heads"), 1);
+    migrated.close();
+    const verifier = new DatabaseSync(path, { readOnly: true });
+    try {
+      const head = verifier.prepare("SELECT source_revision_id FROM legacy_revision_heads").get() as
+        { source_revision_id: string };
+      assert.equal(head.source_revision_id, "revision-new");
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 5);
     } finally {
       verifier.close();
     }
