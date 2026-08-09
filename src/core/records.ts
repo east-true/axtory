@@ -42,6 +42,7 @@ export interface RawObservation {
     | "VENDOR_SESSION_VIEW"
     | "CODEX_THREAD_VIEW"
     | "WORK_SYSTEM_VIEW"
+    | "ADDITIONAL_AI_VIEW"
     | "GIT_SNAPSHOT"
     | "LIVE_EVENT";
   provenance: Provenance;

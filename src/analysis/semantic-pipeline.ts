@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { extractClaudeSemanticDocuments } from "../connectors/claude/semantic-input.js";
 import { extractCodexSemanticDocuments } from "../connectors/codex/semantic-input.js";
+import { extractAdditionalAiSemanticDocuments } from "../connectors/additional-ai/semantic-input.js";
 import { ContentAddressedBlobStore } from "../core/blob-store.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import { AxtoryDatabase } from "../core/storage.js";
@@ -51,7 +52,9 @@ export async function runRuleSemanticAnalysis(options: {
     const observations = database.observationsForRevision(options.revisionId);
     const documents = raw.observationType === "CODEX_THREAD_VIEW"
       ? extractCodexSemanticDocuments(payload, observations)
-      : extractClaudeSemanticDocuments(payload, observations);
+      : raw.observationType === "ADDITIONAL_AI_VIEW"
+        ? extractAdditionalAiSemanticDocuments(payload, observations)
+        : extractClaudeSemanticDocuments(payload, observations);
     database.startAnalysisRun({
       id: analysisRunId, analyzerType: "RULE_SEMANTIC_ANALYZER",
       analyzerVersion: RULE_SEMANTIC_ANALYZER_VERSION,
