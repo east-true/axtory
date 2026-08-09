@@ -67,6 +67,7 @@ follow-up work, not completed functionality.
 
 ## Deferred boundaries
 
-Semantic analysis, Git, Hooks, OTel, AnalysisUnit grouping, Codex, impact estimates, dashboards,
-and public connector SPI remain outside the technical MVP. Optional live mode is introduced only
-with Hook/OTel and uses a bounded local spool.
+Semantic analysis, Git, Hooks, OTel, and Codex were implemented in later phases. AnalysisUnit
+grouping, impact estimates, dashboards, work-system connectors, and a published connector SPI
+remain deferred. Optional live mode is introduced only with Hook/OTel and uses a bounded local
+spool.

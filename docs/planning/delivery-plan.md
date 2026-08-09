@@ -114,7 +114,24 @@ worktree/subagent의 의미 관계는 생성하지 않는다.
 - **Phase 6 Claude Hook [OPT]:** 동의 기반 lifecycle 수집, bounded Spool, 설정 rollback.
 - **Phase 7 Claude OTel [OPT]:** Token/model/cost/latency. 비용 종류와 namespace 분리.
 
-이 Phase들은 Phase 2·3의 신뢰 모델과 삭제 정책이 검증되기 전 시작하지 않는다.
+**현재 결과:** 2차 구현으로 완료했다. 선행조건으로 VerificationRecord, UserAnnotation,
+CollectionPolicy 영속화, 선택 삭제 세 모드와 자동 Retention을 먼저 구현했다. Rule Analyzer는
+명시적 content 분석 동의가 있을 때만 실행하며 결과를 `INFERRED` assertion으로 저장한다.
+Local/Remote 모델은 Tool 권한을 갖지 않는 strict structured-result adapter 계약까지 제공하고
+Provider 자체는 `NOT_CONFIGURED`다.
+
+Local Git은 별도 SourceObject/Revision으로 수집하며 경로, diff, commit message, 작성자 신원을
+보존하지 않는다. 사용자가 Session Revision을 명시했을 때 시간 창이 겹친 commit만
+`INFERRED`의 `CORRELATED` 관계로 저장하고 작성·인과를 주장하지 않는다.
+
+Hook/OTel은 기본 OFF다. opt-in 설정 시 loopback·Bearer 인증 Receiver, 크기·rate·용량 제한,
+중단 복구 가능한 Spool, 기존 설정 병합, exact backup/rollback을 사용한다. OTel `http/json`
+metrics/logs에서 content/identity를 정규화 결과에 복제하지 않고 token/model/추정 cost/latency를
+분리한다. gRPC/protobuf, trace beta, content-bearing OTel gate는 지원하지 않는다.
+
+**검증:** 합성 Hook/OTLP payload, 실제 임시 Git repository, 설정 merge/backup/rollback,
+Spool 중단 복구·idempotency, Blob/WAL/Spool 삭제 범위를 자동 테스트한다. 실제 Claude live
+세션 발화는 사용자 설정을 자동 변경하지 않기 위해 2차 완료 감사에 포함하지 않는다.
 
 ## Phase 8: Codex
 
@@ -125,6 +142,20 @@ parent/ancestor, `useStateDbOnly`, metadata repair 여부, active thread 읽기.
 
 **완료 조건:** Claude와 Codex 구현에서 실제 공통성이 확인된 최소 계약만 Public Connector
 SPI 후보 문서로 제안한다. 공통되지 않은 항목은 Connector 내부에 남긴다.
+
+**현재 결과:** 완료했다. `codex app-server` 0.147.0의 안정 `thread/list`와 `thread/read`만
+사용하며 experimental turn pagination은 사용하지 않는다. 원본 `CODEX_HOME`에서 App Server를
+직접 시작하면 SQLite runtime 초기화 쓰기가 발생함을 확인했으므로, 원본 state DB의 일관된
+읽기 전용 backup으로 임시 private home을 만든 뒤 실행한다. 목록은 active/archive와 현재의
+모든 source kind를 명시하고 `useStateDbOnly: true`를 강제한다.
+
+반환 thread는 Raw/Revision/Normalized/SessionProjection/Fact/Output 경로를 통과한다. active,
+list/detail 수정시각 불일치, compaction, non-full turn, pagination bound를 완전한 이력으로
+표시하지 않는다. fork/parent는 공식 응답의 명시 필드가 있을 때만 관계를 만든다.
+
+Claude/Codex 공통 최소 계약은 `architecture/connector-spi-candidate.md`에 후보로 기록했지만,
+공개 SPI는 아직 만들지 않았다. offset/cursor, SDK/stdio lifecycle, active consistency,
+sourceKind와 lineage는 Connector 내부에 남겼다.
 
 ## Phase 9~11
 
@@ -139,5 +170,7 @@ SPI 후보 문서로 제안한다. 공통되지 않은 항목은 Connector 내�
 3. **완료:** custom `CLAUDE_CONFIG_DIR` 격리 child-process Spike
 4. **부분 완료:** active 변경 감지; resume/compaction/worktree/subagent 통제 절차는 후속
 5. **완료:** 공식 Claude Local History를 Revision/Normalization/Analysis/Output 경로에 연결
+6. **완료:** Phase 4~7과 선행 신뢰·삭제 계약
+7. **완료:** Phase 8 Codex App Server Connector와 Public SPI 후보 감사
 
-자동 AnalysisUnit, ROI, Dashboard, Hook, OTel은 이 순서에 끼워 넣지 않는다.
+자동 AnalysisUnit, ROI, Dashboard, 업무 시스템은 다음 범위다.

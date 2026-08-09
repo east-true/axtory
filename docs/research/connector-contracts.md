@@ -22,6 +22,10 @@ work. Official interfaces outrank local storage details.
   are plaintext and retained for 30 days by default.
 - Hooks and OTel are opt-in configuration changes. Content-bearing telemetry is redacted by
   default and requires separate gates.
+- HTTP hooks POST the command-hook JSON input and treat connection/non-2xx failures as
+  non-blocking. Header environment interpolation requires an explicit `allowedEnvVars` entry.
+- OTel supports per-signal OTLP `http/json` endpoints. Prompt, tool detail/content, and raw API
+  body logging are separate opt-in gates; AXtory's generated configuration forces them off.
 
 Sources:
 
@@ -87,6 +91,8 @@ session becomes a fixture.
 | Git worktree | PARTIAL_CAPABILITY | Official option is forwarded with `includeWorktrees: true`; controlled session-bearing worktree remains pending. |
 | Subagent lineage | PARTIAL_CAPABILITY | SDK types document parent fields, but no sampled parent link exists; no Core relation is emitted. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
+| HTTP Hook receiver | VERIFIED_BY_TEST/PARTIAL | Loopback auth, bounds, Spool, settings backup/rollback pass synthetic tests; controlled live Claude emission remains pending. |
+| OTLP `http/json` metrics/logs | VERIFIED_BY_TEST/PARTIAL | Synthetic official-shape payloads produce content-free facts; gRPC/protobuf, traces, and controlled live emission are not claimed. |
 
 `VERIFIED_BY_TEST` means a synthetic unit/contract test validated AXtory behavior, not that the
 installed Vendor implementation was exercised for that scenario.
@@ -95,9 +101,11 @@ installed Vendor implementation was exercised for that scenario.
 
 Official OpenAI documentation verifies that App Server exposes `thread/list` and
 `thread/read`; `thread/read` can include turns without resuming or subscribing to the thread.
-The current protocol also describes paged stored-turn reads as experimental and exposes thread
-source kinds and parent/ancestor filters. OTel and Hooks are disabled by default or require
-explicit configuration.
+The stdio transport is newline-delimited JSON without a `jsonrpc` header and requires
+`initialize` followed by `initialized`. `thread/list` uses opaque cursor pagination, defaults to
+interactive source kinds when the filter is omitted, and offers `useStateDbOnly: true` to avoid
+scanning rollout JSONL to repair metadata. Stored-turn pagination is experimental, so AXtory does
+not use it. OTel and Hooks are disabled by default or require explicit configuration.
 
 Sources:
 
@@ -105,9 +113,40 @@ Sources:
 - https://developers.openai.com/codex/config-advanced/
 - https://developers.openai.com/codex/hooks/
 
-Codex remains Phase 8. No public abstraction is extracted from these similarities yet. A future
-spike must verify whether starting App Server and using `useStateDbOnly` is genuinely read-only,
-because the default thread listing may scan JSONL to repair metadata.
+### Local observation
+
+- Same-environment executable: Codex CLI 0.147.0 on WSL2 Linux x86_64.
+- `codex login status` exited successfully. AXtory retained no account identifier or credential.
+- Starting App Server against the original sandbox-read-only `CODEX_HOME` failed while
+  initializing its SQLite state runtime. Therefore a read-only method set does not imply a
+  write-free process lifecycle.
+- Node's SQLite online backup successfully copied the live state DB into a private temporary
+  `CODEX_HOME`. App Server then initialized there and `thread/list(useStateDbOnly: true)` plus
+  `thread/read(includeTurns: true)` succeeded while the original tree remained read-only.
+- A bounded report enumerated five threads and structurally inspected 55 full turns. Observed item
+  type labels were `userMessage`, `agentMessage`, `fileChange`, `webSearch`, `subAgentActivity`,
+  and `contextCompaction`. No content, IDs, paths, cwd, titles, model values, or tool payloads were
+  retained in the report.
+- The bounded view contained no active, fork-linked, or parent-linked thread. This is absence in
+  the sample, not evidence that those cases do not occur.
+
+### Contract status
+
+| Contract | Current status | Handling |
+| --- | --- | --- |
+| App Server lifecycle | VERIFIED | Isolated state snapshot is mandatory; direct original-home startup is rejected by design. |
+| `thread/list` cursor pagination | VERIFIED_BY_TEST/PARTIAL | Cursor advance, repeat detection, max-page bound, duplicate handling, archive split tested. |
+| source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
+| `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
+| `thread/read` returned turns | VERIFIED | Installed App Server returned full turns without resume/subscription. |
+| active thread consistency | VERIFIED_BY_TEST/PARTIAL | Active or changed list/detail metadata is partial; controlled live mutation remains pending. |
+| fork/parent relation | VERIFIED_BY_TEST/PARTIAL | Explicit fields normalize to hashed relations; no local sampled link was present. |
+| compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
+| internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
+| experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
+
+Phase 8 is implemented. The cross-Vendor minimum is recorded only as a Public SPI candidate;
+no exported plugin contract is declared.
 
 ## Vendor dependency boundary
 
@@ -116,3 +155,7 @@ Terms and its package can install platform-specific Claude Code binaries. AXtory
 does not declare it as a runtime or peer dependency, does not bundle it, and does not publish
 its binary. The spike dynamically loads a separately installed SDK and uses the user's existing
 `claude` executable.
+
+Codex uses the separately installed `codex` executable and its App Server protocol. AXtory does
+not bundle the executable, generated protocol package, or a Codex SDK. Version-specific generated
+schemas were inspected during the Spike but were not copied into the repository.

@@ -107,17 +107,26 @@ Capability 검사
 - 반복 수집 중복 방지 및 중단 실행 reconciliation 테스트
 - 공식 Claude History의 제한된 실제 수집과 동일 view 증분 재수집 검증
 - 기본 로컬 CollectionPolicy와 marker-guarded `PURGE_ALL`
+- VerificationRecord와 원 분석을 덮어쓰지 않는 UserAnnotation
+- Blob reference, 분석 Evidence 상태, WAL, pending Spool을 포함한 선택 삭제와 Retention
+- opt-in Rule Semantic Analysis와 strict Local/Remote structured-result adapter
+- 별도 Local Git Artifact Source와 비인과적 temporal correlation
+- opt-in Claude HTTP Hook/OTLP `http/json` Receiver, bounded Spool, 설정 backup/rollback
+- OTel token/model/추정 cost/latency Fact
+- 공식 Codex App Server 기반 thread 수집, 격리 state snapshot, Fact/Semantic 경로
 
-현재 완료 상태는 resume·compaction·worktree·subagent 의미 관계까지 검증했다는 뜻이 아니다.
+현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
+active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
 
-## 7. MVP에서 제외하는 것
+## 7. 초기 MVP 이후에도 제외하는 것
 
 - 자동 AnalysisUnit 그룹핑과 AI 기여도 백분율
 - 목표 달성 점수, AX 종합점수, ROI 및 시간 절감 추정
 - Cloud Backend, 팀 계정, RBAC, Microservices, Message Broker
 - Plugin Marketplace 및 임의 Repository Plugin 실행
-- Git/Jira/Grafana 연동
-- Hook·OTel 자동 설정
+- Jira/Grafana 연동
+- Hook·OTel 자동 설정 또는 외부 bind
+- bundled Local/Remote 의미 분석 모델 Provider
 - Claude 내부 JSONL 직접 파싱
 - 모든 Agent 동시 지원
 
@@ -152,8 +161,9 @@ Capability 검사
 - 사용자의 세션·코드·분석 데이터에 AXtory가 소유권을 주장하지 않는다.
 - 사용자는 조회, Export, 삭제, Retention 설정을 할 수 있어야 한다.
 - Raw 불변성은 분석 파이프라인이 원본을 임의 수정하지 않는다는 뜻이며 사용자 삭제를 막지 않는다.
-- 현재는 전체 AXtory 데이터 디렉터리 `PURGE_ALL`만 지원한다. 선택 삭제와 Retention을
-  지원한다고 문서나 UI에서 주장하지 않는다.
+- 전체 `PURGE_ALL`과 `DELETE_RAW_ONLY`, `DELETE_RAW_AND_DERIVED`,
+  `DELETE_SOURCE_SESSION`, 분류별 Retention을 지원한다. 삭제는 Evidence 상태, Blob 참조,
+  SQLite WAL과 pending Spool을 함께 처리한다.
 
 ## 10. 제품 성공 기준
 
@@ -174,4 +184,6 @@ Capability 검사
 장점은 인정하지만 상시 Receiver가 Core 필수가 아니며 첫 Connector의 공식 TypeScript
 SDK를 직접 사용하는 단순성이 더 중요하다. 측정된 병목 없이 언어를 분리하지 않는다.
 
-Claude와 Codex의 공통성이 실제 구현으로 확인되기 전에는 Connector SPI를 공개하지 않는다.
+Claude와 Codex 구현에서 발견한 공통 최소 계약은 후보로 문서화했지만 Public SPI로 공개하지
+않았다. Vendor별 pagination, consistency, lifecycle 차이를 더 많은 Connector에서 검증하기
+전에는 안정성 약속을 만들지 않는다.
