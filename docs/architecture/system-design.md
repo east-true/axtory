@@ -2,7 +2,7 @@
 
 상태: `ACCEPTED` for Foundation / `PROPOSED` for 미구현 영역
 
-기준일: 2026-08-09
+기준일: 2026-08-10
 
 ## 1. 설계 목표
 
@@ -64,6 +64,8 @@ connectors/codex/
   discovery, isolated App Server adapter, pagination, normalizer, collector
 connectors/work-systems/
   HTTPS boundary, GitHub/GitLab/Jira/Linear adapters, pagination, normalizer, collector
+connectors/additional-ai/
+  Gemini CLI/OpenCode/Cursor/Aider adapters, discovery, normalizer, collector
 projections/
   session/work-artifact projection, future analysis-unit projection
 analysis/
@@ -247,6 +249,19 @@ environment/key 식별자만 남기는 allowlist다. title, body/description, co
 URL, repository name은 저장하지 않는다. commit identity는 Local Git과 동일하게 SHA-256한 뒤
 일치하는 경우에만 `OBSERVED` relation으로 결합한다.
 
+### 추가 AI Source
+
+Gemini CLI, OpenCode, Cursor Agent, Aider는 공통 `AdditionalAiSourceApi` 내부 경계를 사용하지만
+동일한 데이터 능력을 가정하지 않는다. Gemini/Cursor는 목록 ID를 해시한 metadata-only
+Revision을 만든다. OpenCode는 공식 pure JSON list/export를 사용해 Message content identity와
+명시적 Tool part occurrence를 정규화한다. Aider는 사용자가 명시한 Markdown history를 Raw로
+보존하되 Message 경계를 추론하지 않는다.
+
+CLI child process는 shell 없이 실행하고 timeout/output size/cwd를 제한한다. list preview,
+path, Vendor ID, content는 Console/JSON에 내보내지 않는다. limit와 원천 변경은 partial,
+구조화 export가 없으면 `NOT_COLLECTED` 또는 `NOT_SUPPORTED`다. 이 내부 API 역시 Public SPI가
+아니다.
+
 ## 12. CollectionPolicy와 데이터 분류
 
 분류는 `PUBLIC_METADATA`, `LOCAL_METADATA`, `IDENTIFYING_METADATA`,
@@ -325,6 +340,8 @@ Contract Test로 검증한다.
 - content-free OTel token/model/추정 cost/latency 정규화·분석
 - 격리 snapshot 기반 Codex App Server thread 수집과 Fact/Semantic 경로
 - Claude/Codex 공통 최소 Connector 계약 후보 문서
+- GitHub/GitLab/Jira/Linear 업무 시스템 Connector와 explicit Git relation
+- Gemini CLI/OpenCode/Cursor/Aider capability별 Source Connector
 
 ### 미구현 또는 추가 Spike 필요
 

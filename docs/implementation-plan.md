@@ -68,6 +68,7 @@ follow-up work, not completed functionality.
 ## Later phases
 
 Semantic analysis, Git, Hooks, OTel, Codex, and GitHub/GitLab/Jira/Linear work-system connectors
-were implemented in later phases. AnalysisUnit grouping, impact estimates, dashboards, additional
-AI sources, and a published connector SPI remain deferred. Optional live mode is introduced only
-with Hook/OTel and uses a bounded local spool.
+were implemented in later phases. Gemini CLI, OpenCode, Cursor, and Aider sources were implemented
+in Phase 10 with capability-specific coverage. AnalysisUnit grouping, impact estimates, dashboards,
+and a published connector SPI remain deferred. Optional live mode is introduced only with Hook/OTel
+and uses a bounded local spool.

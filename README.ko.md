@@ -27,6 +27,8 @@ Raw data는 로컬 불변 Revision에 보관하며, 정제된 Projection과 근�
   backup으로 복구할 수 있습니다.
 - 업무 시스템 Token은 지정한 환경변수로만 받습니다. 저장 view에서 title, description,
   comment, log, 사용자 신원, URL, 저장소명을 제외합니다.
+- 추가 AI Source는 Provider별 coverage를 그대로 표시합니다. Session 목록이나 비정형 log에서
+  Message·Tool fact를 임의로 만들어내지 않습니다.
 
 ## 개발
 
@@ -117,6 +119,37 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
 `DELETE_RAW_AND_DERIVED`와 `DELETE_SOURCE_SESSION`에도 동일하게 정확한 확인 문자열이
 필요합니다. 이 작업은 SQLite secure deletion과 WAL checkpoint를 적용하고, 참조되지 않는
 Blob을 제거하며, 관련 Evidence 상태와 일치하는 pending live Spool 항목도 처리합니다.
+
+## 추가 AI Source
+
+Snapshot Collector는 Gemini CLI, OpenCode, Cursor Agent, Aider를 지원합니다. 실행 파일을
+번들하거나 설정을 변경하지 않습니다.
+
+```sh
+npm run build
+node dist/src/cli.js collect-additional-ai \
+  --provider opencode --project-dir . \
+  --data-dir .local/axtory-opencode --json-out .local/axtory-opencode/output.json
+
+node dist/src/cli.js collect-additional-ai \
+  --provider aider --project-dir . --history-file .aider.chat.history.md \
+  --data-dir .local/axtory-aider --json-out .local/axtory-aider/output.json
+```
+
+다른 설치된 CLI는 `--provider gemini` 또는 `--provider cursor`로 선택하고, `--limit`으로
+열거 범위를 제한합니다. 공식 읽기 인터페이스의 차이를 숨기지 않습니다.
+
+| Provider | Source 계약 | Message·Tool fact |
+| --- | --- | --- |
+| OpenCode | JSON Session 목록과 export | 반환 export 범위에서 제공 |
+| Gemini CLI | Session 목록 | `NOT_COLLECTED`, metadata만 수집 |
+| Cursor Agent | Session 목록 | `NOT_COLLECTED`, metadata만 수집 |
+| Aider | 명시적으로 지정한 chat-history Markdown | `NOT_SUPPORTED`, Raw log만 보관 |
+
+대화 export와 Aider Markdown은 민감한 로컬 Blob으로만 보관합니다. Console·JSON 출력에는
+집계 count, Availability, coverage, evidence 상태만 포함합니다. 계약 근거와 제한은
+[`docs/research/additional-ai-contracts.md`](docs/research/additional-ai-contracts.md)를
+참고하세요.
 
 ## 의미 분석과 Git 분석
 

@@ -37,7 +37,8 @@ AXtory는 이 질문에 무조건 답을 생성하지 않는다. 알 수 없는 
 3. **사용 방식 유지:** Agent 실행 흐름에 AXtory를 강제로 끼워 넣지 않는다.
 4. **로컬 소유:** 계정이나 중앙 서버 없이 수집·조회·내보내기·삭제가 가능해야 한다.
 5. **Vendor 독립성:** Vendor 원문과 Canonical 모델을 분리한다.
-6. **점진적 신뢰:** Claude에서 검증한 후보가 Codex에서도 확인된 경우에만 공개 SPI를 검토한다.
+6. **점진적 신뢰:** 여러 Source 구현에서 공통 계약을 검증하되 격리·호환성·공급망 조건이
+   갖춰진 경우에만 공개 SPI를 검토한다.
 
 ## 4. 주요 사용자
 
@@ -116,6 +117,7 @@ Capability 검사
 - 공식 Codex App Server 기반 thread 수집, 격리 state snapshot, Fact/Semantic 경로
 - GitHub/GitLab PR·CI·Deployment와 Jira/Linear Work Item의 content-free 증분 수집
 - 업무 시스템의 명시적 commit identity와 Local Git commit의 관측 관계
+- Gemini CLI/OpenCode/Cursor/Aider의 capability별 증분 수집과 명시적 coverage
 
 현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
 active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
@@ -186,6 +188,6 @@ active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다
 장점은 인정하지만 상시 Receiver가 Core 필수가 아니며 첫 Connector의 공식 TypeScript
 SDK를 직접 사용하는 단순성이 더 중요하다. 측정된 병목 없이 언어를 분리하지 않는다.
 
-Claude와 Codex 구현에서 발견한 공통 최소 계약은 후보로 문서화했지만 Public SPI로 공개하지
-않았다. Vendor별 pagination, consistency, lifecycle 차이를 더 많은 Connector에서 검증하기
-전에는 안정성 약속을 만들지 않는다.
+Claude, Codex, 업무 시스템, 추가 AI Source 구현에서 공통 최소 계약을 검토했지만 Public
+SPI로 공개하지 않았다. 세 번째 이상의 Source는 Core 경계의 재사용 가능성을 보여줬지만,
+프로세스 격리·권한·호환성·공급망 정책 없이 외부 안정성 약속을 만들지 않는다.

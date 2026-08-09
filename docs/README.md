@@ -17,7 +17,9 @@
 | [Phase 8 구현 감사](release/phase8-codex-audit.md) | Codex Connector, 실제 App Server Spike, SPI 후보 결정 | 완료 |
 | [업무 시스템 계약 조사](research/work-system-contracts.md) | GitHub/GitLab/Jira/Linear 공식 API와 최소 수집 계약 | 완료 |
 | [Phase 9 구현 감사](release/phase9-work-systems-audit.md) | PR·CI·Deploy·Work Item Connector와 Local Git 연결 | 완료 |
-| [Connector SPI 후보](architecture/connector-spi-candidate.md) | Claude/Codex 공통 최소 계약과 비공통 경계 | 후보 |
+| [추가 AI Source 계약 조사](research/additional-ai-contracts.md) | Gemini CLI/OpenCode/Cursor/Aider 공식 읽기 계약과 차이 | 완료 |
+| [Phase 10 구현 감사](release/phase10-additional-ai-audit.md) | 추가 AI Source의 증분 수집·Privacy·Coverage 검증 | 완료 |
+| [Connector SPI 후보](architecture/connector-spi-candidate.md) | 다중 Connector 공통 최소 계약과 비공통 경계 | 후보 |
 | [기존 구현 계획](implementation-plan.md) | 최초 Repository 분석과 구현 현황 기록 | 보존 문서 |
 
 ## 상태 용어

@@ -28,6 +28,8 @@ evidence-aware analysis remain separate.
   restored from an exact settings backup.
 - Work-system tokens are accepted only from named environment variables; titles, descriptions,
   comments, logs, user identities, URLs, and repository names are excluded from persisted views.
+- Additional AI sources expose provider-specific coverage; AXtory never converts a session list
+  or an unstructured log into invented message or tool facts.
 
 ## Development
 
@@ -119,6 +121,37 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
 `DELETE_RAW_AND_DERIVED` and `DELETE_SOURCE_SESSION` use the same exact confirmation rule. These
 operations apply SQLite secure deletion and WAL checkpointing, remove unreferenced blobs, update
 dependent Evidence state, and cover matching pending live Spool entries.
+
+## Additional AI sources
+
+The snapshot collector supports Gemini CLI, OpenCode, Cursor Agent, and Aider without bundling
+their executables or changing their settings:
+
+```sh
+npm run build
+node dist/src/cli.js collect-additional-ai \
+  --provider opencode --project-dir . \
+  --data-dir .local/axtory-opencode --json-out .local/axtory-opencode/output.json
+
+node dist/src/cli.js collect-additional-ai \
+  --provider aider --project-dir . --history-file .aider.chat.history.md \
+  --data-dir .local/axtory-aider --json-out .local/axtory-aider/output.json
+```
+
+Use `--provider gemini` or `--provider cursor` for the other installed CLIs, and `--limit` to
+bound enumeration. Capabilities differ by the official read interfaces each provider exposes:
+
+| Provider | Source contract | Message/tool facts |
+| --- | --- | --- |
+| OpenCode | JSON session list and export | Available for the returned export |
+| Gemini CLI | Session list | `NOT_COLLECTED`; metadata only |
+| Cursor Agent | Session list | `NOT_COLLECTED`; metadata only |
+| Aider | Explicit chat-history Markdown file | `NOT_SUPPORTED`; raw log only |
+
+Conversation exports and Aider Markdown remain sensitive local blobs. Console and JSON output
+contain only aggregate counts, Availability, coverage, and evidence status. See
+[`docs/research/additional-ai-contracts.md`](docs/research/additional-ai-contracts.md) for the
+contract evidence and limitations.
 
 ## Semantic and Git analysis
 

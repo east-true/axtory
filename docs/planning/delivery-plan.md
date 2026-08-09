@@ -178,9 +178,27 @@ pagination/HTTP/normalization/incremental/privacy test, 공개 GitHub 실제 bou
 Local Git 재수집 연결을 통과했다. 인증이 필요한 GitLab/Jira/Linear 실제 계정 smoke는
 수행하지 않았으며 Vendor 운영환경 전체를 검증했다는 의미가 아니다.
 
-## Phase 10~11
+## Phase 10: 추가 AI Source
 
-- **Phase 10 추가 AI Source:** Gemini CLI, OpenCode, Cursor, Aider 등
+**목표:** Gemini CLI, OpenCode, Cursor Agent, Aider의 공식 비파괴 읽기 경로를 동일한
+Revision/Evidence pipeline에 연결하되 Provider별 capability 차이를 보존한다.
+
+**현재 결과:** 완료했다. OpenCode의 공식 JSON list/export는 Message·Tool occurrence까지
+정규화한다. Gemini CLI와 Cursor Agent는 문서화된 Session list만 읽어 metadata-only로
+표시하고 preview를 폐기한다. Aider는 사용자가 명시한 chat-history Markdown을 Raw local
+evidence로 보관하지만 안정된 Message schema를 추측하지 않는다.
+
+네 Source 모두 Discovery/Capability, immutable Revision, incremental reuse, SessionProjection,
+Fact, Console/JSON 경로를 통과한다. limit, 목록/상세 사이 원천 변경, metadata-only, 비정형
+원문은 각각 explicit coverage와 Availability로 표현한다. Raw conversation, path, Session ID,
+model, identity, tool payload는 출력하지 않는다.
+
+**검증:** 공식 문서/소스 shape 기반 합성 contract test와 Aider의 실제 AXtory child-process
+CLI 수집을 통과했다. 감사 환경에 Vendor CLI가 없어 Gemini/OpenCode/Cursor 실제 설치본과
+Aider가 생성한 실제 history의 smoke는 수행하지 않았다.
+
+## Phase 11
+
 - **Phase 11 Impact Analysis:** 충분한 사용자별 baseline 이후 ESTIMATED 효과 분석
 
 ## 바로 다음 작업
@@ -193,5 +211,6 @@ Local Git 재수집 연결을 통과했다. 인증이 필요한 GitLab/Jira/Line
 6. **완료:** Phase 4~7과 선행 신뢰·삭제 계약
 7. **완료:** Phase 8 Codex App Server Connector와 Public SPI 후보 감사
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
+9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
 
-자동 AnalysisUnit, ROI, Dashboard, 추가 AI Source는 다음 범위다.
+자동 AnalysisUnit, ROI/Impact Analysis, Dashboard는 다음 범위다.
