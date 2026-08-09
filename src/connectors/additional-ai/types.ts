@@ -1,4 +1,5 @@
 import type { DataClassification, Provenance } from "../../core/records.js";
+import { isoTimestamp as coreIsoTimestamp } from "../../core/time.js";
 
 export const ADDITIONAL_AI_PROVIDERS = ["GEMINI_CLI", "OPENCODE", "CURSOR", "AIDER"] as const;
 export type AdditionalAiProvider = (typeof ADDITIONAL_AI_PROVIDERS)[number];
@@ -53,9 +54,7 @@ export function isoTimestamp(value: unknown): string | null {
     const date = new Date(milliseconds);
     return Number.isFinite(date.getTime()) ? date.toISOString() : null;
   }
-  if (typeof value !== "string") return null;
-  const milliseconds = Date.parse(value);
-  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+  return coreIsoTimestamp(value);
 }
 
 export function object(value: unknown, label: string): Record<string, unknown> {

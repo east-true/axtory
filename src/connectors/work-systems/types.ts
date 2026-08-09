@@ -1,3 +1,5 @@
+import { isoTimestamp } from "../../core/time.js";
+
 export const WORK_PROVIDERS = ["GITHUB", "GITLAB", "JIRA", "LINEAR"] as const;
 export type WorkProvider = (typeof WORK_PROVIDERS)[number];
 
@@ -87,9 +89,7 @@ export function safeState(value: unknown): string {
 }
 
 export function timestamp(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const milliseconds = Date.parse(value);
-  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+  return isoTimestamp(value);
 }
 
 export function identifier(value: unknown, label: string): string {

@@ -1,5 +1,6 @@
 import { canonicalJson, sha256, stableId } from "../../core/canonical-json.js";
 import type { NormalizedObservation } from "../../core/records.js";
+import { isoFromEpoch } from "../../core/time.js";
 import type { CodexThread, CodexThreadItem, CodexTurn } from "./types.js";
 
 export const CODEX_NORMALIZER_VERSION = "codex-app-server/1";
@@ -11,9 +12,7 @@ export type CodexMessageCoverage =
   | "PARTIAL_SOURCE_CHANGED";
 
 function epochSeconds(value: unknown): string | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const date = new Date(value * 1_000);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  return isoFromEpoch(value, "SECONDS");
 }
 
 function sourceKind(value: unknown): string {

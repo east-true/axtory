@@ -1,5 +1,6 @@
 import { canonicalJson, sha256, stableId } from "../core/canonical-json.js";
 import type { NormalizedObservation } from "../core/records.js";
+import { isoTimestamp } from "../core/time.js";
 
 export const FIXTURE_SCHEMA = "axtory.fixture.claude-history.v1";
 export const FIXTURE_NORMALIZER_VERSION = "fixture-claude-history/1";
@@ -51,10 +52,16 @@ export function parseClaudeHistoryFixture(bytes: Uint8Array): ClaudeHistoryFixtu
       typeof parsed.session.id !== "string" || !Array.isArray(parsed.session.messages)) {
     throw new Error(`fixture does not match ${FIXTURE_SCHEMA}`);
   }
+  if (parsed.sourceModifiedAt !== undefined && isoTimestamp(parsed.sourceModifiedAt) === null) {
+    throw new Error("fixture sourceModifiedAt must be an ISO-8601 timestamp");
+  }
   for (const message of parsed.session.messages) {
     if (!isRecord(message) || typeof message.id !== "string" ||
         !["user", "assistant", "system"].includes(String(message.role)) || !Array.isArray(message.blocks)) {
       throw new Error("fixture contains an invalid message envelope");
+    }
+    if (message.occurredAt !== undefined && isoTimestamp(message.occurredAt) === null) {
+      throw new Error("fixture contains a message occurredAt that is not an ISO-8601 timestamp");
     }
     for (const block of message.blocks) {
       if (!isRecord(block) || !["text", "tool_use", "tool_result"].includes(String(block.type))) {
@@ -92,12 +99,13 @@ export function normalizeClaudeHistoryFixture(
   });
   fixture.session.messages.forEach((message, messageIndex) => {
     const contentIdentity = sha256(canonicalJson(message.blocks));
+    const occurredAt = isoTimestamp(message.occurredAt);
     add({
       stableKey: `message:${messageIndex}:${message.id}`,
       kind: "CONTENT",
       dataClassification: "CONVERSATION_CONTENT",
-      occurredAt: message.occurredAt ?? null,
-      timeQuality: message.occurredAt ? "SOURCE_REPORTED" : "ORDER_ONLY",
+      occurredAt,
+      timeQuality: occurredAt ? "SOURCE_REPORTED" : "ORDER_ONLY",
       payload: { role: message.role, contentIdentity },
     });
     message.blocks.forEach((block, blockIndex) => {
@@ -106,8 +114,8 @@ export function normalizeClaudeHistoryFixture(
         stableKey: `tool-occurrence:${messageIndex}:${blockIndex}`,
         kind: "EVENT",
         dataClassification: "TOOL_CONTENT",
-        occurredAt: message.occurredAt ?? null,
-        timeQuality: message.occurredAt ? "SOURCE_REPORTED" : "ORDER_ONLY",
+        occurredAt,
+        timeQuality: occurredAt ? "SOURCE_REPORTED" : "ORDER_ONLY",
         payload: {
           toolName: block.toolName ?? "UNKNOWN",
           usageOccurrenceId: stableId("usage", { revisionId, messageIndex, blockIndex }),

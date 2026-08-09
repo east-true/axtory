@@ -11,6 +11,8 @@ export interface PaginatedResult<T> {
   coverage: ReturnedViewCoverage;
   pagesRead: number;
   duplicateCount: number;
+  /** Items the Vendor returned without a stable identity, so overlap dedup could not apply to them. */
+  unidentifiedCount: number;
 }
 
 interface PaginationOptions {
@@ -18,10 +20,18 @@ interface PaginationOptions {
   maxPages?: number;
 }
 
+/**
+ * `FAIL` suits identities the official contract guarantees, such as a session id that also keys the
+ * SourceObject. `KEEP_UNDEDUPLICATED` suits optional identities: the occurrence is preserved and the
+ * returned view is reported as partial rather than discarding the whole enumeration.
+ */
+type MissingIdentityPolicy = "FAIL" | "KEEP_UNDEDUPLICATED";
+
 async function collectPages<T>(
   readPage: (limit: number, offset: number) => Promise<readonly T[]>,
   identity: (item: T) => string,
   options: PaginationOptions,
+  missingIdentity: MissingIdentityPolicy = "FAIL",
 ): Promise<PaginatedResult<T>> {
   const pageSize = options.pageSize ?? 100;
   const maxPages = options.maxPages ?? 100;
@@ -34,12 +44,18 @@ async function collectPages<T>(
   const items: T[] = [];
   const seen = new Set<string>();
   let duplicateCount = 0;
+  let unidentifiedCount = 0;
   for (let page = 0; page < maxPages; page += 1) {
     const offset = page * pageSize;
     const returned = await readPage(pageSize, offset);
     for (const item of returned) {
       const id = identity(item);
-      if (id.length === 0) throw new Error("paginated source returned an item without identity");
+      if (id.length === 0) {
+        if (missingIdentity === "FAIL") throw new Error("paginated source returned an item without identity");
+        unidentifiedCount += 1;
+        items.push(item);
+        continue;
+      }
       if (seen.has(id)) {
         duplicateCount += 1;
         continue;
@@ -50,9 +66,12 @@ async function collectPages<T>(
     if (returned.length < pageSize) {
       return {
         items,
-        coverage: duplicateCount > 0 ? "PARTIAL_PAGINATION" : "COMPLETE_FOR_RETURNED_VIEW",
+        coverage: duplicateCount > 0 || unidentifiedCount > 0
+          ? "PARTIAL_PAGINATION"
+          : "COMPLETE_FOR_RETURNED_VIEW",
         pagesRead: page + 1,
         duplicateCount,
+        unidentifiedCount,
       };
     }
   }
@@ -61,6 +80,7 @@ async function collectPages<T>(
     coverage: "PARTIAL_PAGINATION",
     pagesRead: maxPages,
     duplicateCount,
+    unidentifiedCount,
   };
 }
 
@@ -95,5 +115,6 @@ export function listAllMessages(
     }),
     (item) => item.uuid ?? "",
     options,
+    "KEEP_UNDEDUPLICATED",
   );
 }

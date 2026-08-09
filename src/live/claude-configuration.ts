@@ -21,6 +21,23 @@ function object(value: unknown, name: string): JsonObject {
   return value as JsonObject;
 }
 
+/**
+ * Recognize a hook group AXtory itself wrote. The receiver binds an ephemeral port unless one is
+ * given, so a previous run's entry carries a different URL and would otherwise accumulate as a
+ * permanent hook pointing at a dead port. Only AXtory's own entries match; user hooks are kept.
+ */
+function isAxtoryHookGroup(group: unknown): boolean {
+  if (!group || typeof group !== "object" || Array.isArray(group)) return false;
+  const hooks = (group as JsonObject).hooks;
+  if (!Array.isArray(hooks) || hooks.length === 0) return false;
+  return hooks.every((hook) => {
+    if (!hook || typeof hook !== "object" || Array.isArray(hook)) return false;
+    const item = hook as JsonObject;
+    return Array.isArray(item.allowedEnvVars) && item.allowedEnvVars.includes("AXTORY_LIVE_TOKEN") &&
+      typeof item.url === "string" && /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[A-Za-z][A-Za-z0-9]*$/u.test(item.url);
+  });
+}
+
 async function writeAtomically(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -52,8 +69,7 @@ export function mergeClaudeLiveSettings(input: {
       const current = hooks[event] === undefined ? [] : hooks[event];
       if (!Array.isArray(current)) throw new Error(`Claude hook ${event} must be an array`);
       const url = `${input.endpoint}/hooks/${event}`;
-      const alreadyPresent = current.some((group) => JSON.stringify(group).includes(url));
-      hooks[event] = alreadyPresent ? current : [...current, {
+      hooks[event] = [...current.filter((group) => !isAxtoryHookGroup(group)), {
         matcher: "",
         hooks: [{
           type: "http", url, timeout: 5,
