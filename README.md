@@ -1,5 +1,7 @@
 # AXtory
 
+[English](README.md) | [한국어](README.ko.md)
+
 AXtory is a local-first observer for AI-assisted work. It collects evidence exposed by
 tools such as Claude Code and Codex without becoming the agent runner or prompt proxy.
 
