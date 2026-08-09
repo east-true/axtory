@@ -19,8 +19,10 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test --test-isolation=none dist/test/**/*.test.js dist/test/**/**/*.test.js",
     "spike:claude": "npm run build && node dist/scripts/claude-contract-spike.js",
+    "spike:codex": "npm run build && node dist/src/cli.js spike-codex --json-out .local/axtory-codex-spike.json",
     "skeleton": "npm run build && node dist/src/cli.js collect-fixture --fixture fixtures/synthetic/normal-session.json --data-dir .local/axtory --json-out .local/axtory/output.json",
-    "collect:claude": "npm run build && node dist/src/cli.js collect-claude --data-dir .local/axtory-claude --json-out .local/axtory-claude/output.json"
+    "collect:claude": "npm run build && node dist/src/cli.js collect-claude --data-dir .local/axtory-claude --json-out .local/axtory-claude/output.json",
+    "collect:codex": "npm run build && node dist/src/cli.js collect-codex --data-dir .local/axtory-codex --json-out .local/axtory-codex/output.json"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
