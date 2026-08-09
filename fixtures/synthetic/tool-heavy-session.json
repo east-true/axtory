@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-tool-heavy-session",
+  "sourceModifiedAt": "2026-02-03T04:05:06.000Z",
+  "session": {
+    "id": "synthetic-session-tool-heavy",
+    "messages": [
+      {
+        "id": "message-001",
+        "role": "user",
+        "occurredAt": "2026-02-03T04:00:00.000Z",
+        "blocks": [
+          { "type": "text", "text": "Inspect only synthetic files." }
+        ]
+      },
+      {
+        "id": "message-002",
+        "role": "assistant",
+        "occurredAt": "2026-02-03T04:00:01.000Z",
+        "blocks": [
+          { "type": "tool_use", "toolName": "Read", "toolUseId": "tool-001", "input": { "path": "fixture-a.txt" } },
+          { "type": "tool_use", "toolName": "Read", "toolUseId": "tool-002", "input": { "path": "fixture-b.txt" } },
+          { "type": "tool_use", "toolName": "Read", "toolUseId": "tool-003", "input": { "path": "fixture-a.txt" } }
+        ]
+      },
+      {
+        "id": "message-003",
+        "role": "user",
+        "occurredAt": "2026-02-03T04:00:02.000Z",
+        "blocks": [
+          { "type": "tool_result", "toolUseId": "tool-001", "output": "synthetic-a" },
+          { "type": "tool_result", "toolUseId": "tool-002", "output": "synthetic-b" },
+          { "type": "tool_result", "toolUseId": "tool-003", "output": "synthetic-a" }
+        ]
+      }
+    ]
+  }
+}

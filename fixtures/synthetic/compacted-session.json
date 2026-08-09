@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-compacted-session",
+  "scenario": "COMPACTED",
+  "expectedCoverage": "PARTIAL_COMPACTION",
+  "session": {
+    "id": "synthetic-session-compacted",
+    "messages": [
+      {
+        "id": "message-before-compaction",
+        "role": "user",
+        "blocks": [{ "type": "text", "text": "Synthetic content before compaction." }]
+      },
+      {
+        "id": "synthetic-compaction-boundary",
+        "role": "system",
+        "blocks": [{ "type": "text", "text": "Synthetic compaction boundary; not a Vendor payload." }]
+      }
+    ]
+  }
+}

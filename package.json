@@ -1,0 +1,29 @@
+{
+  "name": "axtory",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "description": "Local-first, evidence-aware analytics for AI-assisted work",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/east-true/axtory.git"
+  },
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "axtory": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test --test-isolation=none dist/test/**/*.test.js dist/test/**/**/*.test.js",
+    "spike:claude": "npm run build && node dist/scripts/claude-contract-spike.js",
+    "skeleton": "npm run build && node dist/src/cli.js collect-fixture --fixture fixtures/synthetic/normal-session.json --data-dir .local/axtory --json-out .local/axtory/output.json",
+    "collect:claude": "npm run build && node dist/src/cli.js collect-claude --data-dir .local/axtory-claude --json-out .local/axtory-claude/output.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

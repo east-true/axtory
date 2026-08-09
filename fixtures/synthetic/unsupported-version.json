@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v999",
+  "sourceObjectKey": "synthetic-unsupported-version",
+  "session": {
+    "id": "synthetic-session-unsupported-version",
+    "messages": []
+  }
+}

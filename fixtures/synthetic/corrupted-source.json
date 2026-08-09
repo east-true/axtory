@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-corrupted-source",
+  "session": {
+    "id": "synthetic-session-corrupted",
+    "messages": [
+  }
+}

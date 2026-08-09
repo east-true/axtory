@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-normal-session",
+  "sourceModifiedAt": "2026-01-02T03:04:05.000Z",
+  "session": {
+    "id": "synthetic-session-001",
+    "messages": [
+      {
+        "id": "message-001",
+        "role": "user",
+        "occurredAt": "2026-01-02T03:00:00.000Z",
+        "blocks": [
+          { "type": "text", "text": "Create a synthetic greeting module." }
+        ]
+      },
+      {
+        "id": "message-002",
+        "role": "assistant",
+        "occurredAt": "2026-01-02T03:00:01.000Z",
+        "blocks": [
+          { "type": "tool_use", "toolName": "Write", "toolUseId": "tool-001", "input": { "path": "synthetic.txt" } },
+          { "type": "tool_use", "toolName": "Write", "toolUseId": "tool-002", "input": { "path": "synthetic.txt" } },
+          { "type": "text", "text": "The synthetic artifact was created." }
+        ]
+      },
+      {
+        "id": "message-003",
+        "role": "user",
+        "blocks": [
+          { "type": "tool_result", "toolUseId": "tool-001", "output": "synthetic result" }
+        ]
+      }
+    ]
+  }
+}

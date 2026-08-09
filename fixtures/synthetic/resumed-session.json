@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-resumed-session",
+  "scenario": "RESUMED",
+  "session": {
+    "id": "synthetic-session-resumed",
+    "messages": [
+      {
+        "id": "message-before-resume",
+        "role": "user",
+        "occurredAt": "2026-03-01T00:00:00.000Z",
+        "blocks": [{ "type": "text", "text": "Synthetic first request." }]
+      },
+      {
+        "id": "message-after-resume",
+        "role": "user",
+        "occurredAt": "2026-03-02T00:00:00.000Z",
+        "blocks": [{ "type": "text", "text": "Synthetic continued request." }]
+      }
+    ]
+  }
+}

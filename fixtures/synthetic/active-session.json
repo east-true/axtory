@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-active-session",
+  "scenario": "ACTIVE",
+  "expectedCoverage": "PARTIAL_SOURCE_CHANGED",
+  "session": {
+    "id": "synthetic-session-active",
+    "messages": [
+      {
+        "id": "message-visible-during-read",
+        "role": "assistant",
+        "blocks": [{ "type": "text", "text": "Synthetic in-progress response." }]
+      }
+    ]
+  }
+}

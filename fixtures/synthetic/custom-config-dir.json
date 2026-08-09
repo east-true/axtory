@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-custom-config-session",
+  "scenario": "CUSTOM_CONFIG",
+  "session": {
+    "id": "synthetic-session-custom-config",
+    "messages": []
+  }
+}

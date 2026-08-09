@@ -1,0 +1,10 @@
+node_modules/
+dist/
+local-spike-results/
+.local/
+coverage/
+.axtory/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.tmp

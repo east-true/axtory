@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "axtory.fixture.claude-history.v1",
+  "sourceObjectKey": "synthetic-missing-fields",
+  "session": {
+    "id": "synthetic-session-missing-fields",
+    "messages": [
+      {
+        "id": "message-without-timestamp",
+        "role": "user",
+        "blocks": [
+          { "type": "text" }
+        ]
+      }
+    ]
+  }
+}
