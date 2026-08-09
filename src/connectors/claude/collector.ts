@@ -53,6 +53,7 @@ export interface ClaudeCollectionOutput {
     availability: string;
     reason: string | null;
     evidenceCount: number;
+    evidenceStatus: "PRESENT" | "EVIDENCE_REMOVED" | "INVALIDATED";
   }[];
   limitations: readonly string[];
 }
@@ -81,6 +82,7 @@ export async function collectClaudeHistory(
   const blobs = new ContentAddressedBlobStore(join(dataDirectory, "blobs"));
   const collectionRunId = `collection_${randomId()}`;
   database.reconcileInterruptedRuns(timestamp());
+  database.saveCollectionPolicy(DEFAULT_LOCAL_COLLECTION_POLICY, timestamp());
   database.startCollectionRun(collectionRunId, "CLAUDE_CODE", timestamp());
   try {
     const sessions = await listAllSessions(api, {
@@ -90,6 +92,7 @@ export async function collectClaudeHistory(
     });
     const projections = [];
     const revisionIds: string[] = [];
+    const revisionsWithoutRawEvidence = new Set<string>();
     let revisionsCreated = 0;
     let revisionsUnchanged = 0;
     let partialMessageViews = 0;
@@ -102,6 +105,9 @@ export async function collectClaudeHistory(
         ? database.findRevisionBySourceModifiedAt(sourceObjectId, sourceModifiedAt)
         : null;
       if (unchangedRevisionId) {
+        if (!database.rawObservationForRevision(unchangedRevisionId)) {
+          revisionsWithoutRawEvidence.add(unchangedRevisionId);
+        }
         const projection = projectSession(database.observationsForRevision(unchangedRevisionId));
         projections.push(projection);
         if (projection.messageCoverage !== "COMPLETE_FOR_RETURNED_VIEW") partialMessageViews += 1;
@@ -179,7 +185,12 @@ export async function collectClaudeHistory(
       inputRevisionIds: revisionIds,
       startedAt: timestamp(),
     });
-    const records = analyzeFacts(analysisRunId, projections);
+    const records = analyzeFacts(analysisRunId, projections).map((record) => ({
+      ...record,
+      evidenceStatus: record.evidenceIds.length > 0 && revisionsWithoutRawEvidence.size > 0
+        ? "EVIDENCE_REMOVED" as const
+        : record.evidenceStatus,
+    }));
     database.transaction(() => database.insertAnalysisRecords(records));
     database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
     const coverage = sessions.coverage !== "COMPLETE_FOR_RETURNED_VIEW"
@@ -215,6 +226,7 @@ export async function collectClaudeHistory(
         availability: item.availability,
         reason: item.reason,
         evidenceCount: item.evidenceIds.length,
+        evidenceStatus: item.evidenceStatus,
       })),
       limitations: [
         "Counts describe the official API returned view, not completed work items.",

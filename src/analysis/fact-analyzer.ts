@@ -28,6 +28,7 @@ export function analyzeFacts(
       availability: "AVAILABLE",
       reason: null,
       evidenceIds: evidence,
+      evidenceStatus: "PRESENT",
     } satisfies AnalysisRecord;
   });
   const unavailable = [
@@ -39,12 +40,12 @@ export function analyzeFacts(
     {
       definition: METRIC_CATALOG["usage.input.tokens"],
       availability: "NOT_COLLECTED" as const,
-      reason: "Claude Local History is not used as authoritative token telemetry.",
+      reason: "Session history views are not used as authoritative token telemetry.",
     },
     {
       definition: METRIC_CATALOG["usage.output.tokens"],
       availability: "NOT_COLLECTED" as const,
-      reason: "Claude Local History is not used as authoritative token telemetry.",
+      reason: "Session history views are not used as authoritative token telemetry.",
     },
   ].map(({ definition, availability, reason }) => ({
     id: stableId("analysis", { analysisRunId, key: definition.key }),
@@ -57,6 +58,7 @@ export function analyzeFacts(
     availability,
     reason,
     evidenceIds: [],
+    evidenceStatus: "PRESENT",
   } satisfies AnalysisRecord));
   return [...available, ...unavailable];
 }

@@ -20,6 +20,7 @@ export interface SkeletonOutput {
     availability: string;
     reason: string | null;
     evidenceCount: number;
+    evidenceStatus: AnalysisRecord["evidenceStatus"];
   }[];
 }
 
@@ -39,6 +40,7 @@ export function applyOutputPolicy(
       availability: item.availability,
       reason: item.reason,
       evidenceCount: item.evidenceIds.length,
+      evidenceStatus: item.evidenceStatus,
     }));
   return {
     schemaVersion: "axtory.walking-skeleton-output.v1",

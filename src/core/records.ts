@@ -37,7 +37,12 @@ export type LineageRelationType =
 export interface RawObservation {
   id: string;
   sourceRevisionId: string;
-  observationType: "FIXTURE_DOCUMENT" | "VENDOR_SESSION_VIEW";
+  observationType:
+    | "FIXTURE_DOCUMENT"
+    | "VENDOR_SESSION_VIEW"
+    | "CODEX_THREAD_VIEW"
+    | "GIT_SNAPSHOT"
+    | "LIVE_EVENT";
   provenance: Provenance;
   dataClassification: DataClassification;
   payloadReference: string;
@@ -69,4 +74,45 @@ export interface AnalysisRecord {
   availability: Availability;
   reason: string | null;
   evidenceIds: readonly string[];
+  evidenceStatus: "PRESENT" | "EVIDENCE_REMOVED" | "INVALIDATED";
+}
+
+export const VERIFICATION_TYPES = [
+  "SOURCE_INTEGRITY",
+  "TECHNICAL",
+  "HUMAN_ACCEPTANCE",
+  "WORKFLOW",
+  "DEPLOYMENT",
+  "PRODUCTION_OUTCOME",
+] as const;
+export type VerificationType = (typeof VERIFICATION_TYPES)[number];
+
+export const VERIFICATION_STATUSES = [
+  "VERIFIED",
+  "PARTIAL",
+  "FAILED",
+  "REJECTED",
+  "CONTRADICTED",
+  "UNKNOWN",
+  "NOT_APPLICABLE",
+] as const;
+export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+export interface VerificationRecord {
+  id: string;
+  analysisRecordId: string;
+  verificationType: VerificationType;
+  status: VerificationStatus;
+  provenance: Provenance;
+  evidenceIds: readonly string[];
+  note: string | null;
+  verifiedAt: string;
+}
+
+export interface UserAnnotation {
+  id: string;
+  targetType: "SOURCE_REVISION" | "ANALYSIS_RECORD";
+  targetId: string;
+  assertion: string;
+  createdAt: string;
 }

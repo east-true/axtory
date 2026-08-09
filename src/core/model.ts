@@ -53,7 +53,7 @@ export interface ExecutionEnvironment {
 
 export interface SourceProfile {
   id: string;
-  sourceType: "CLAUDE_CODE" | "CODEX" | "FIXTURE";
+  sourceType: "CLAUDE_CODE" | "CODEX" | "LOCAL_GIT" | "FIXTURE";
   environmentId: string;
   dataRoot: AvailableValue<string>;
   executablePath: AvailableValue<string>;

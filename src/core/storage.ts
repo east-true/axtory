@@ -3,7 +3,14 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson } from "./canonical-json.js";
-import type { AnalysisRecord, NormalizedObservation, RawObservation } from "./records.js";
+import type {
+  AnalysisRecord,
+  NormalizedObservation,
+  RawObservation,
+  UserAnnotation,
+  VerificationRecord,
+} from "./records.js";
+import type { CollectionPolicy } from "./policy.js";
 
 export interface RevisionInput {
   id: string;
@@ -37,8 +44,8 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 2) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 2) return;
+    if (version.user_version > 3) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 3) return;
     if (version.user_version === 1) {
       this.db.exec(`
         BEGIN IMMEDIATE;
@@ -56,9 +63,7 @@ export class AxtoryDatabase {
         PRAGMA user_version = 2;
         COMMIT;
       `);
-      return;
-    }
-    this.db.exec(`
+    } else if (version.user_version === 0) this.db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE collection_runs (
         id TEXT PRIMARY KEY,
@@ -145,6 +150,50 @@ export class AxtoryDatabase {
       PRAGMA user_version = 2;
       COMMIT;
     `);
+    const analysisRecordsTable = this.db.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'analysis_records'`,
+    ).get();
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${analysisRecordsTable ? `ALTER TABLE analysis_records ADD COLUMN evidence_status TEXT NOT NULL DEFAULT 'PRESENT'
+        CHECK(evidence_status IN ('PRESENT','EVIDENCE_REMOVED','INVALIDATED'));` : ""}
+      CREATE TABLE verification_records (
+        id TEXT PRIMARY KEY,
+        analysis_record_id TEXT NOT NULL REFERENCES analysis_records(id) ON DELETE CASCADE,
+        verification_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        provenance TEXT NOT NULL,
+        evidence_ids_json TEXT NOT NULL,
+        note TEXT,
+        verified_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE user_annotations (
+        id TEXT PRIMARY KEY,
+        target_type TEXT NOT NULL CHECK(target_type IN ('SOURCE_REVISION','ANALYSIS_RECORD')),
+        target_id TEXT NOT NULL,
+        assertion TEXT NOT NULL CHECK(length(trim(assertion)) > 0),
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE collection_policies (
+        version TEXT PRIMARY KEY,
+        policy_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE deletion_runs (
+        id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL,
+        target_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('COMPLETED','FAILED')),
+        raw_observations_deleted INTEGER NOT NULL,
+        normalized_observations_deleted INTEGER NOT NULL,
+        analysis_runs_deleted INTEGER NOT NULL,
+        blobs_deleted INTEGER NOT NULL,
+        spool_entries_deleted INTEGER NOT NULL,
+        executed_at TEXT NOT NULL
+      ) STRICT;
+      PRAGMA user_version = 3;
+      COMMIT;
+    `);
   }
 
   transaction<T>(operation: () => T): T {
@@ -157,6 +206,14 @@ export class AxtoryDatabase {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  prepareSecureDeletion(): void {
+    this.db.exec("PRAGMA secure_delete = ON;");
+  }
+
+  finalizeSecureDeletion(): void {
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);");
   }
 
   startCollectionRun(id: string, sourceType: string, startedAt: string): void {
@@ -263,13 +320,178 @@ export class AxtoryDatabase {
   insertAnalysisRecords(records: readonly AnalysisRecord[]): void {
     const statement = this.db.prepare(`INSERT INTO analysis_records(
       id, analysis_run_id, key, record_type, derivation, value_json, unit,
-      availability, reason, evidence_ids_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      availability, reason, evidence_ids_json, evidence_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     for (const item of records) {
       statement.run(item.id, item.analysisRunId, item.key, item.recordType, item.derivation,
         canonicalJson(item.value), item.unit, item.availability, item.reason,
-        canonicalJson(item.evidenceIds));
+        canonicalJson(item.evidenceIds), item.evidenceStatus);
     }
+  }
+
+  insertVerificationRecord(record: VerificationRecord): void {
+    this.db.prepare(`INSERT INTO verification_records(
+      id, analysis_record_id, verification_type, status, provenance,
+      evidence_ids_json, note, verified_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      record.id, record.analysisRecordId, record.verificationType, record.status,
+      record.provenance, canonicalJson(record.evidenceIds), record.note, record.verifiedAt,
+    );
+  }
+
+  insertUserAnnotation(annotation: UserAnnotation): void {
+    if (annotation.assertion.trim().length === 0) throw new Error("a user annotation requires an assertion");
+    const targetTable = annotation.targetType === "SOURCE_REVISION" ? "source_revisions" : "analysis_records";
+    const target = this.db.prepare(`SELECT id FROM ${targetTable} WHERE id = ?`).get(annotation.targetId);
+    if (!target) throw new Error("user annotation target does not exist");
+    this.db.prepare(`INSERT INTO user_annotations(id, target_type, target_id, assertion, created_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      annotation.id, annotation.targetType, annotation.targetId, annotation.assertion, annotation.createdAt,
+    );
+  }
+
+  saveCollectionPolicy(policy: CollectionPolicy, createdAt: string): void {
+    this.db.prepare(`INSERT INTO collection_policies(version, policy_json, created_at)
+      VALUES (?, ?, ?) ON CONFLICT(version) DO UPDATE SET policy_json = excluded.policy_json`).run(
+      policy.version, canonicalJson(policy), createdAt,
+    );
+  }
+
+  loadCollectionPolicy(version: string): CollectionPolicy | null {
+    const row = this.db.prepare(`SELECT policy_json FROM collection_policies WHERE version = ?`)
+      .get(version) as { policy_json: string } | undefined;
+    return row ? JSON.parse(row.policy_json) as CollectionPolicy : null;
+  }
+
+  rawObservationsEligibleForRetention(classification: string, observedBefore: string): Array<{
+    id: string; sourceRevisionId: string; payloadReference: string;
+  }> {
+    return this.db.prepare(`SELECT id, source_revision_id, payload_reference
+      FROM raw_observations WHERE data_classification = ? AND observed_at < ? ORDER BY id`)
+      .all(classification, observedBefore).map((row) => {
+        const item = row as Record<string, string>;
+        return { id: item.id!, sourceRevisionId: item.source_revision_id!, payloadReference: item.payload_reference! };
+      });
+  }
+
+  rawObservationsForRevisionIds(revisionIds: readonly string[]): Array<{
+    id: string; sourceRevisionId: string; payloadReference: string;
+  }> {
+    if (revisionIds.length === 0) return [];
+    const placeholders = revisionIds.map(() => "?").join(",");
+    return this.db.prepare(`SELECT id, source_revision_id, payload_reference FROM raw_observations
+      WHERE source_revision_id IN (${placeholders}) ORDER BY id`).all(...revisionIds).map((row) => {
+        const item = row as Record<string, string>;
+        return { id: item.id!, sourceRevisionId: item.source_revision_id!, payloadReference: item.payload_reference! };
+      });
+  }
+
+  rawObservationForRevision(revisionId: string): {
+    id: string; payloadReference: string; dataClassification: string; observationType: RawObservation["observationType"];
+  } | null {
+    const row = this.db.prepare(`SELECT id, payload_reference, data_classification, observation_type
+      FROM raw_observations WHERE source_revision_id = ? ORDER BY id LIMIT 1`).get(revisionId) as
+      Record<string, string> | undefined;
+    return row ? {
+      id: row.id!, payloadReference: row.payload_reference!, dataClassification: row.data_classification!,
+      observationType: row.observation_type as RawObservation["observationType"],
+    } : null;
+  }
+
+  revisionIdsForSourceObject(sourceObjectId: string): string[] {
+    return this.db.prepare(`SELECT id FROM source_revisions WHERE source_object_id = ? ORDER BY id`)
+      .all(sourceObjectId).map((row) => (row as { id: string }).id);
+  }
+
+  deleteRawObservations(rawObservationIds: readonly string[]): number {
+    if (rawObservationIds.length === 0) return 0;
+    const placeholders = rawObservationIds.map(() => "?").join(",");
+    return Number(this.db.prepare(`DELETE FROM raw_observations WHERE id IN (${placeholders})`)
+      .run(...rawObservationIds).changes);
+  }
+
+  markEvidenceRemoved(evidenceIds: readonly string[]): number {
+    if (evidenceIds.length === 0) return 0;
+    const evidence = new Set(evidenceIds);
+    const rows = this.db.prepare(`SELECT id, evidence_ids_json FROM analysis_records
+      WHERE evidence_status = 'PRESENT'`).all() as Array<{ id: string; evidence_ids_json: string }>;
+    let changed = 0;
+    const statement = this.db.prepare(`UPDATE analysis_records SET evidence_status = 'EVIDENCE_REMOVED'
+      WHERE id = ?`);
+    for (const row of rows) {
+      const ids = JSON.parse(row.evidence_ids_json) as string[];
+      if (ids.some((id) => evidence.has(id))) changed += Number(statement.run(row.id).changes);
+    }
+    return changed;
+  }
+
+  markEvidenceRemovedForRevisionIds(revisionIds: readonly string[]): number {
+    if (revisionIds.length === 0) return 0;
+    const revisions = new Set(revisionIds);
+    const runIds = (this.db.prepare(`SELECT id, input_revision_ids_json FROM analysis_runs`).all() as
+      Array<{ id: string; input_revision_ids_json: string }>).filter((row) =>
+        (JSON.parse(row.input_revision_ids_json) as string[]).some((id) => revisions.has(id)))
+      .map((row) => row.id);
+    if (runIds.length === 0) return 0;
+    const placeholders = runIds.map(() => "?").join(",");
+    return Number(this.db.prepare(`UPDATE analysis_records SET evidence_status = 'EVIDENCE_REMOVED'
+      WHERE evidence_status = 'PRESENT' AND evidence_ids_json != '[]'
+        AND analysis_run_id IN (${placeholders})`).run(...runIds).changes);
+  }
+
+  deleteDerivedForRevisionIds(revisionIds: readonly string[]): {
+    normalizedObservations: number; analysisRuns: number;
+  } {
+    if (revisionIds.length === 0) return { normalizedObservations: 0, analysisRuns: 0 };
+    const revisions = new Set(revisionIds);
+    const runs = (this.db.prepare(`SELECT id, input_revision_ids_json FROM analysis_runs`).all() as
+      Array<{ id: string; input_revision_ids_json: string }>).filter((row) =>
+        (JSON.parse(row.input_revision_ids_json) as string[]).some((id) => revisions.has(id)));
+    const placeholders = revisionIds.map(() => "?").join(",");
+    const normalizedObservations = Number(this.db.prepare(
+      `DELETE FROM normalized_observations WHERE source_revision_id IN (${placeholders})`,
+    ).run(...revisionIds).changes);
+    let analysisRuns = 0;
+    const deleteRun = this.db.prepare(`DELETE FROM analysis_runs WHERE id = ?`);
+    for (const run of runs) {
+      this.db.prepare(`DELETE FROM user_annotations WHERE target_type = 'ANALYSIS_RECORD'
+        AND target_id IN (SELECT id FROM analysis_records WHERE analysis_run_id = ?)`).run(run.id);
+      analysisRuns += Number(deleteRun.run(run.id).changes);
+    }
+    return { normalizedObservations, analysisRuns };
+  }
+
+  deleteSourceObject(sourceObjectId: string): number {
+    this.db.prepare(`DELETE FROM user_annotations WHERE target_type = 'SOURCE_REVISION'
+      AND target_id IN (SELECT id FROM source_revisions WHERE source_object_id = ?)`).run(sourceObjectId);
+    return Number(this.db.prepare(`DELETE FROM source_objects WHERE id = ?`).run(sourceObjectId).changes);
+  }
+
+  externalKeyForSourceObject(sourceObjectId: string): string | null {
+    const row = this.db.prepare(`SELECT external_key FROM source_objects WHERE id = ?`).get(sourceObjectId) as
+      { external_key: string } | undefined;
+    return row?.external_key ?? null;
+  }
+
+  rawReferenceCount(payloadReference: string): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS count FROM raw_observations WHERE payload_reference = ?`)
+      .get(payloadReference) as { count: number };
+    return row.count;
+  }
+
+  recordDeletion(input: {
+    id: string; mode: string; target: unknown; status: "COMPLETED" | "FAILED";
+    rawObservationsDeleted: number; normalizedObservationsDeleted: number;
+    analysisRunsDeleted: number; blobsDeleted: number; spoolEntriesDeleted: number; executedAt: string;
+  }): void {
+    this.db.prepare(`INSERT INTO deletion_runs(
+      id, mode, target_json, status, raw_observations_deleted,
+      normalized_observations_deleted, analysis_runs_deleted, blobs_deleted, spool_entries_deleted, executed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      input.id, input.mode, canonicalJson(input.target), input.status, input.rawObservationsDeleted,
+      input.normalizedObservationsDeleted, input.analysisRunsDeleted, input.blobsDeleted,
+      input.spoolEntriesDeleted, input.executedAt,
+    );
   }
 
   recordExport(input: {
@@ -285,7 +507,50 @@ export class AxtoryDatabase {
     );
   }
 
-  count(table: "collection_runs" | "source_revisions" | "raw_observations" | "normalized_observations" | "analysis_runs" | "export_runs"): number {
+  inventory(): {
+    sources: Array<{
+      sourceObjectId: string; sourceType: string;
+      revisions: Array<{ revisionId: string; rawRetained: boolean; collectedAt: string }>;
+    }>;
+    analysisRecords: Array<{
+      analysisRecordId: string; key: string; recordType: string; derivation: string;
+      availability: string; evidenceStatus: string;
+    }>;
+  } {
+    const sourceRows = this.db.prepare(`SELECT so.id AS source_object_id, so.source_type,
+      sr.id AS revision_id, sr.collected_at,
+      EXISTS(SELECT 1 FROM raw_observations ro WHERE ro.source_revision_id = sr.id) AS raw_retained
+      FROM source_objects so LEFT JOIN source_revisions sr ON sr.source_object_id = so.id
+      ORDER BY so.source_type, so.id, sr.collected_at`).all() as Array<Record<string, string | number | null>>;
+    const sources = new Map<string, {
+      sourceObjectId: string; sourceType: string;
+      revisions: Array<{ revisionId: string; rawRetained: boolean; collectedAt: string }>;
+    }>();
+    for (const row of sourceRows) {
+      const sourceObjectId = String(row.source_object_id);
+      const source = sources.get(sourceObjectId) ?? {
+        sourceObjectId, sourceType: String(row.source_type), revisions: [],
+      };
+      if (row.revision_id !== null) source.revisions.push({
+        revisionId: String(row.revision_id), rawRetained: Number(row.raw_retained) === 1,
+        collectedAt: String(row.collected_at),
+      });
+      sources.set(sourceObjectId, source);
+    }
+    const analysisRecords = this.db.prepare(`SELECT id, key, record_type, derivation, availability, evidence_status
+      FROM analysis_records ORDER BY key, id`).all().map((row) => {
+      const item = row as Record<string, string>;
+      return {
+        analysisRecordId: item.id!, key: item.key!, recordType: item.record_type!,
+        derivation: item.derivation!, availability: item.availability!, evidenceStatus: item.evidence_status!,
+      };
+    });
+    return { sources: [...sources.values()], analysisRecords };
+  }
+
+  count(table: "collection_runs" | "source_objects" | "source_revisions" | "raw_observations" |
+    "normalized_observations" | "analysis_runs" | "analysis_records" | "verification_records" |
+    "user_annotations" | "collection_policies" | "deletion_runs" | "export_runs"): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
     return row.count;
   }
