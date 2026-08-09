@@ -102,6 +102,11 @@ worktree/subagent의 의미 관계는 생성하지 않는다.
 **완료 조건:** 모든 지표가 Metric Catalog 정의, Availability, Provenance, Evidence,
 입력 Revision을 가지며 Assertion을 검증 사실로 출력하지 않는다.
 
+**현재 결과:** Session, Message, Tool invocation count를 Evidence 기반 `CALCULATED` Metric으로
+구현했다. Rule Analyzer가 free-form Agent assertion을 분류하지 못하는 상태는
+`NOT_SUPPORTED`, History 채널에서 Token을 수집하지 않는 상태는 `NOT_COLLECTED`와 이유로
+출력한다. 두 경우 모두 0으로 표시하지 않는다.
+
 ## Phase 4~7
 
 - **Phase 4 Semantic Analysis:** Rule/Local/Remote Analyzer. 모든 의미 분석은 `INFERRED`.

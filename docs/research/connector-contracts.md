@@ -82,10 +82,10 @@ session becomes a fixture.
 | ToolUse/ToolResult presence | VERIFIED | Only allowlisted type labels are retained; payloads are excluded. |
 | Resume and fork lineage | NEEDS_SPIKE | Controlled sessions must distinguish lineage from content duplication. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
-| Compaction | NEEDS_SPIKE | Controlled compaction fixture must preserve unknown coverage. |
+| Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
-| Git worktree | NEEDS_SPIKE | `includeWorktrees` behavior needs an isolated worktree case. |
-| Subagent lineage | NEEDS_SPIKE | No sampled `parent_tool_use_id`; observed `parent_agent_id` is not interpreted. |
+| Git worktree | PARTIAL_CAPABILITY | Official option is forwarded with `includeWorktrees: true`; controlled session-bearing worktree remains pending. |
+| Subagent lineage | PARTIAL_CAPABILITY | SDK types document parent fields, but no sampled parent link exists; no Core relation is emitted. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 
 `VERIFIED_BY_TEST` means a synthetic unit/contract test validated AXtory behavior, not that the

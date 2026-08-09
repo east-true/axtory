@@ -8,6 +8,7 @@ import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import { AxtoryDatabase } from "../../core/storage.js";
+import type { Derivation } from "../../core/records.js";
 import { projectSession } from "../../projections/session.js";
 import type { ClaudeDiscovery } from "./discovery.js";
 import type { ClaudeHistoryApi } from "./history-api.js";
@@ -48,8 +49,9 @@ export interface ClaudeCollectionOutput {
     key: string;
     value: unknown;
     unit: string | null;
-    derivation: "CALCULATED";
+    derivation: Derivation;
     availability: string;
+    reason: string | null;
     evidenceCount: number;
   }[];
   limitations: readonly string[];
@@ -209,8 +211,9 @@ export async function collectClaudeHistory(
         key: item.key,
         value: item.value,
         unit: item.unit,
-        derivation: "CALCULATED",
+        derivation: item.derivation,
         availability: item.availability,
+        reason: item.reason,
         evidenceCount: item.evidenceIds.length,
       })),
       limitations: [
@@ -250,7 +253,9 @@ export function renderClaudeCollection(output: ClaudeCollectionOutput): string {
     `Revisions unchanged: ${output.sessions.revisionsUnchanged}`,
   ];
   for (const metric of output.metrics) {
-    lines.push(`${metric.key}: ${String(metric.value)} ${metric.unit ?? ""} [${metric.derivation}]`);
+    lines.push(metric.availability === "AVAILABLE"
+      ? `${metric.key}: ${String(metric.value)} ${metric.unit ?? ""} [${metric.derivation}]`
+      : `${metric.key}: unavailable [${metric.availability}] Reason: ${metric.reason ?? "unknown"}`);
   }
   return `${lines.join("\n").slice(0, 16_384)}\n`;
 }

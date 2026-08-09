@@ -12,6 +12,7 @@
 | [시스템 설계](architecture/system-design.md) | 런타임, 계층, 데이터·신뢰·보안·저장 구조 | 기준 문서 |
 | [Foundation 결정](architecture/foundation.md) | 초기 불변조건과 기술 선택의 간결한 기록 | 승인됨 |
 | [Connector Contract 조사](research/connector-contracts.md) | Claude/Codex 공식 사실, 로컬 관찰, Gap | 진행 중 |
+| [1차 구현 완료 감사](release/initial-implementation-audit.md) | 기술 MVP 요구사항별 구현·검증 근거 | 완료 |
 | [기존 구현 계획](implementation-plan.md) | 최초 Repository 분석과 구현 현황 기록 | 보존 문서 |
 
 ## 상태 용어

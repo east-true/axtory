@@ -16,7 +16,7 @@ export function analyzeFacts(
     { definition: METRIC_CATALOG["message.count"], evidence: flatten((item) => item.messageEvidenceIds) },
     { definition: METRIC_CATALOG["tool.invocation.count"], evidence: flatten((item) => item.toolInvocationEvidenceIds) },
   ] as const;
-  return definitions.map(({ definition, evidence }) => {
+  const available = definitions.map(({ definition, evidence }) => {
     return {
       id: stableId("analysis", { analysisRunId, key: definition.key }),
       analysisRunId,
@@ -30,4 +30,33 @@ export function analyzeFacts(
       evidenceIds: evidence,
     } satisfies AnalysisRecord;
   });
+  const unavailable = [
+    {
+      definition: METRIC_CATALOG["agent.assertion.count"],
+      availability: "NOT_SUPPORTED" as const,
+      reason: "The rule-based fact analyzer does not classify free-form assistant content as assertions.",
+    },
+    {
+      definition: METRIC_CATALOG["usage.input.tokens"],
+      availability: "NOT_COLLECTED" as const,
+      reason: "Claude Local History is not used as authoritative token telemetry.",
+    },
+    {
+      definition: METRIC_CATALOG["usage.output.tokens"],
+      availability: "NOT_COLLECTED" as const,
+      reason: "Claude Local History is not used as authoritative token telemetry.",
+    },
+  ].map(({ definition, availability, reason }) => ({
+    id: stableId("analysis", { analysisRunId, key: definition.key }),
+    analysisRunId,
+    key: definition.key,
+    recordType: "METRIC" as const,
+    derivation: definition.derivation,
+    value: null,
+    unit: definition.unit,
+    availability,
+    reason,
+    evidenceIds: [],
+  } satisfies AnalysisRecord));
+  return [...available, ...unavailable];
 }

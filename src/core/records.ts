@@ -26,6 +26,14 @@ export type TimeQuality =
   | "ORDER_ONLY"
   | "UNKNOWN";
 
+export type LineageRelationType =
+  | "RESUMED_FROM"
+  | "FORKED_FROM"
+  | "SUBAGENT_OF"
+  | "COMPACTED_FROM"
+  | "CONTINUED_FROM"
+  | "UNKNOWN";
+
 export interface RawObservation {
   id: string;
   sourceRevisionId: string;

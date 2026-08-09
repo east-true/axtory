@@ -1,8 +1,8 @@
 export interface MetricDefinition {
   key: string;
   description: string;
-  unit: "count";
-  derivation: "CALCULATED";
+  unit: "count" | "tokens";
+  derivation: "OBSERVED" | "CALCULATED";
   aggregation: "SUM";
   requiredSource: string;
   formulaVersion: string;
@@ -39,5 +39,35 @@ export const METRIC_CATALOG = {
     requiredSource: "tool-use occurrence",
     formulaVersion: "1",
     limitations: ["Repeated content identities remain separate usage occurrences."],
+  },
+  "agent.assertion.count": {
+    key: "agent.assertion.count",
+    description: "Number of assistant claims identified as assertions",
+    unit: "count",
+    derivation: "CALCULATED",
+    aggregation: "SUM",
+    requiredSource: "versioned assertion classifier",
+    formulaVersion: "1",
+    limitations: ["Free-form assistant content is not treated as a verified assertion."],
+  },
+  "usage.input.tokens": {
+    key: "usage.input.tokens",
+    description: "Source-agent input token usage",
+    unit: "tokens",
+    derivation: "OBSERVED",
+    aggregation: "SUM",
+    requiredSource: "official usage telemetry",
+    formulaVersion: "1",
+    limitations: ["Claude Local History is not treated as authoritative usage telemetry."],
+  },
+  "usage.output.tokens": {
+    key: "usage.output.tokens",
+    description: "Source-agent output token usage",
+    unit: "tokens",
+    derivation: "OBSERVED",
+    aggregation: "SUM",
+    requiredSource: "official usage telemetry",
+    formulaVersion: "1",
+    limitations: ["Claude Local History is not treated as authoritative usage telemetry."],
   },
 } as const satisfies Record<string, MetricDefinition>;
