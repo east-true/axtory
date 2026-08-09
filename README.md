@@ -166,12 +166,21 @@ node dist/src/cli.js report-usage \
 ```
 
 Repeat `--source` to combine selected providers, or omit it to include every collected session
-source. `--since` and `--until` accept ISO-8601 timestamps and form a half-open source-time window.
-The report uses only the latest Revision per SourceObject, exposes partial/unknown coverage,
-groups custom extension names into privacy-safe tool categories, and includes daily UTC activity
-in JSON. Sources collected before schema v5 without an observed head relation remain visible as
-an explicit partial legacy fallback. Counts and ratios describe usage patterns, not productivity,
-quality, or AI impact.
+source. A report reads exactly one local `--data-dir`: repeated `--source` combines providers only
+when those collectors wrote to that same directory. It does not federate separate directories such
+as `.local/axtory-claude` and `.local/axtory-codex`; use one shared directory when a combined report
+is required. `--since` and `--until` accept ISO-8601 timestamps and form a half-open source-time
+window. The report uses only the latest Revision per SourceObject, exposes partial/unknown coverage
+and removed Raw evidence, groups custom extension names into privacy-safe tool categories, and
+includes daily UTC activity in JSON. Sources collected before schema v5 without an observed head
+relation remain visible as an explicit partial legacy fallback. Counts and ratios describe usage
+patterns, not productivity, quality, or AI impact.
+
+When the same directory also contains explicitly enabled Claude OTel collection, the report shows
+token, model, estimated cost, and latency facts without combining potentially overlapping event and
+metric channels. Missing telemetry stays `NOT_COLLECTED`. Verification and UserAnnotation records
+connected to the selected evidence are shown as privacy-safe counts; notes and annotation text are
+not exported, and neither record type rewrites the underlying result.
 
 Semantic categories remain off by default. To read retained conversation content locally and
 integrate narrow rule-matched, unverified assertions, give explicit consent. One invocation is
@@ -264,7 +273,9 @@ node dist/src/cli.js rollback-live --settings /path/to/claude/settings.json \
 ```
 
 Token, model, estimated cost, and latency facts are namespaced by OTel channel. Missing categories
-remain `NOT_COLLECTED`; estimated Vendor cost is not billing truth.
+remain `NOT_COLLECTED`; estimated Vendor cost is not billing truth. To see these facts beside a
+Claude Session report, collect snapshot and live sources into the same local data directory. AXtory
+does not merge independent SQLite data directories during reporting.
 
 ## Non-goals for the technical MVP
 

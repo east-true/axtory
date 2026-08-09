@@ -27,18 +27,26 @@ Raw content, Vendor identifier, path, custom extension 이름을 리포트에 �
 | Availability | 완료 | Source 없음은 null+`SOURCE_UNAVAILABLE`, 누락을 0으로 대체하지 않음 |
 | Semantic opt-in | 완료 | 명시적 content 동의, 현재 Revision 완료 run만 `INFERRED`로 통합 |
 | Semantic 상한 | 완료 | 한 번에 100 eligible Revision, 초과 시 범위 축소 요구 |
-| Evidence/저장 | 완료 | versioned AnalysisRun, Metric Catalog, Evidence ID, ExportRun |
+| Evidence/삭제 | 완료 | Raw 삭제를 `EVIDENCE_REMOVED`/`PARTIAL`로 표시하고 파생 record에도 전파 |
+| OTel Usage Fact | 완료 | 같은 DB의 token/model/추정 cost/latency, event·metric channel 별도 집계 |
+| Verification | 완료 | 선택 Evidence에 연결된 유형·상태 집계, 원 분석 근거 상태 별도 표시 |
+| UserAnnotation | 완료 | 선택 범위의 개수만 표시하고 사용자 assertion 원문은 출력하지 않음 |
+| 저장 경계 | 완료 | 한 data directory/SQLite 범위를 명시하고 cross-directory federation은 미지원 |
+| Evidence/저장 | 완료 | `usage-report/2` AnalysisRun, Metric Catalog, Evidence ID, ExportRun |
 | 출력 | 완료 | 길이 제한 Console과 원자적 사용자 전용 JSON |
 
 ## 검증
 
-- `npm test`: 최종 TypeScript build를 포함한 81개 자동 테스트 통과
+- `npm test`: 최종 TypeScript build를 포함한 82개 자동 테스트 통과
 - 이전/최신 Revision을 함께 둔 합성 DB에서 최신 Revision만 집계
 - 과거 content로 revert한 완료 수집은 과거 Revision을 current head로 선택하고 실패 수집은 제외
 - bounded 기간의 undated observation 제외와 `PARTIAL` 유지
 - Source가 없을 때 count를 0이 아닌 null/`SOURCE_UNAVAILABLE`로 출력
 - custom extension label과 Source/Vendor identity가 JSON에 없는지 검사
 - opt-in Rule Semantic run 생성 및 `CHANGE_COMPLETED` 범주 통합
+- Raw-only 삭제 전후 count·Evidence·Verification 상태 보존
+- 동일 token의 OTel event·metric channel 비합산과 누락 범주의 `NOT_COLLECTED`
+- Verification note와 UserAnnotation assertion이 JSON에 없는지 검사
 - 실제 child-process `report-usage` Console/JSON 실행
 - 비어 있지 않은 로컬 Codex data directory에서 실제 report 생성 및 output 민감 문자열 scan
 

@@ -119,7 +119,8 @@ Capability 검사
 - GitHub/GitLab PR·CI·Deployment와 Jira/Linear Work Item의 content-free 증분 수집
 - 업무 시스템의 명시적 commit identity와 Local Git commit의 관측 관계
 - Gemini CLI/OpenCode/Cursor/Aider의 capability별 증분 수집과 명시적 coverage
-- 최신 Revision 기반 기간·Source·Session·Tool Usage Analytics Console/JSON 리포트
+- 최신 Revision 기반 기간·Source·Session·Tool·Evidence·Telemetry·Verification Usage
+  Analytics Console/JSON 리포트
 - 명시적 content 동의가 있을 때만 Usage Report에 통합되는 Rule Semantic 범주
 
 현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된

@@ -215,9 +215,16 @@ Rule Semantic Analyzer를 실행해 검증되지 않은 `INFERRED` 범주로 통
 schema v5 이전 Source처럼 완료 Collection head relation이 없으면 migration 시 고정한 Revision을
 legacy fallback으로 포함하되 `PARTIAL`과 개수를 출력한다.
 
+Raw Evidence가 삭제된 최신 Revision은 count를 유지하더라도 `EVIDENCE_REMOVED`와 `PARTIAL`을
+표시한다. 같은 DB에 opt-in Claude OTel이 있으면 token/model/추정 cost/latency를 event·metric
+channel별로 분리하고 누락 범주는 `NOT_COLLECTED`로 유지한다. 선택 Evidence에 연결된
+VerificationRecord와 UserAnnotation은 내용 없이 집계한다. 반복 `--source`는 한 DB 안의
+filter이며 서로 다른 data directory를 연합하지 않는다.
+
 **검증:** 최신 Revision 선택, 기간 내 미상 시각 제외, Source unavailable null, Tool privacy,
-분포·timeline·semantic opt-in, 실제 child-process CLI를 합성 테스트로 검증했다. 비어 있지 않은
-로컬 Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON에 없음을 확인했다.
+분포·timeline·semantic opt-in, Raw 삭제 전후 Evidence, OTel channel 분리, 연결 Verification·
+Annotation privacy, 실제 child-process CLI를 합성 테스트로 검증했다. 비어 있지 않은 로컬
+Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON에 없음을 확인했다.
 
 ## Phase 11
 

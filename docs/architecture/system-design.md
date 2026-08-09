@@ -162,6 +162,15 @@ Rule Semantic 결과는 별도 `INFERRED` AnalysisRun이며 Conversation content
 생성한다. Usage Report는 현재 Revision과 연결된 완료 Semantic run만 집계한다. 이 리포트의
 비율은 사용 패턴이지 성과·품질·자율성·AI 기여·Impact가 아니다.
 
+Usage Report는 선택 Revision의 Raw 보존 상태를 별도 Evidence 축으로 표시한다. Raw 삭제 뒤
+Normalized count를 계속 제공할 수는 있지만 `EVIDENCE_REMOVED`와 `PARTIAL`을 숨기지 않는다.
+같은 DB의 Claude OTel token/model/추정 cost/latency Fact는 event와 metric channel을 분리한 채
+표시하며 미수집 범주를 0으로 만들지 않는다. 선택 Evidence에 연결된 VerificationRecord와
+UserAnnotation은 원문을 복제하지 않는 집계로 표시하고 원 분석과 독립된 축을 유지한다.
+
+리포트의 저장 경계는 하나의 AXtory data directory와 SQLite DB다. 반복 `--source`는 같은 DB에
+수집된 Source를 고르는 filter이며 여러 DB를 연합하거나 병합하는 기능이 아니다.
+
 ## 7. 신뢰 모델
 
 ### 7.1 Derivation과 명제 종류
@@ -354,7 +363,8 @@ Contract Test로 검증한다.
 - Claude/Codex 공통 최소 Connector 계약 후보 문서
 - GitHub/GitLab/Jira/Linear 업무 시스템 Connector와 explicit Git relation
 - Gemini CLI/OpenCode/Cursor/Aider capability별 Source Connector
-- 최신 Revision·기간·Source·Session·Tool 범주의 Usage Analytics Console/JSON 리포트
+- 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
+  Analytics Console/JSON 리포트
 
 ### 미구현 또는 추가 Spike 필요
 

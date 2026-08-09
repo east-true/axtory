@@ -165,11 +165,21 @@ node dist/src/cli.js report-usage \
 ```
 
 여러 Provider를 합치려면 `--source`를 반복하고, 수집된 모든 Session Source를 포함하려면
-생략합니다. `--since`와 `--until`은 ISO-8601 시각을 받으며 원천 시각 기준 반개구간을 만듭니다.
-리포트는 SourceObject별 최신 Revision만 사용하고 partial/unknown coverage를 드러내며, custom
-extension 이름은 개인정보를 배제한 Tool 범주로 묶고 UTC 일별 활동은 JSON에 포함합니다.
-schema v5 이전에 수집되어 observed head relation이 없는 Source는 명시적인 partial legacy
-fallback으로 유지합니다. Count와 비율은 사용 패턴이지 생산성·품질·AI 효과가 아닙니다.
+생략합니다. 리포트는 하나의 로컬 `--data-dir`만 읽습니다. 반복 `--source`는 각 Collector가
+같은 디렉터리에 기록한 경우에만 Provider를 합치며 `.local/axtory-claude`와
+`.local/axtory-codex`처럼 분리된 디렉터리를 통합하지 않습니다. 통합 리포트가 필요하면 수집
+단계부터 하나의 공유 디렉터리를 사용해야 합니다. `--since`와 `--until`은 ISO-8601 시각을
+받으며 원천 시각 기준 반개구간을 만듭니다. 리포트는 SourceObject별 최신 Revision만 사용하고
+partial/unknown coverage와 Raw Evidence 삭제 상태를 드러내며, custom extension 이름은
+개인정보를 배제한 Tool 범주로 묶고 UTC 일별 활동은 JSON에 포함합니다. schema v5 이전에
+수집되어 observed head relation이 없는 Source는 명시적인 partial legacy fallback으로
+유지합니다. Count와 비율은 사용 패턴이지 생산성·품질·AI 효과가 아닙니다.
+
+같은 디렉터리에 명시적으로 활성화한 Claude OTel 수집도 있으면 token, model, 추정 cost,
+latency fact를 함께 표시하되 중복될 수 있는 event와 metric channel을 합산하지 않습니다.
+누락 Telemetry는 `NOT_COLLECTED`로 유지합니다. 선택 Evidence에 연결된 Verification과
+UserAnnotation은 개인정보를 배제한 개수로만 표시하며 note와 annotation 원문은 내보내지
+않습니다. 두 기록 모두 원 분석 결과를 덮어쓰지 않습니다.
 
 의미 범주는 기본적으로 꺼져 있습니다. 보존된 대화 내용을 로컬에서 읽어 좁은 Rule에 걸린
 검증되지 않은 Assertion을 통합하려면 명시적으로 동의합니다. 한 번에 최대 100개 eligible
@@ -265,7 +275,9 @@ node dist/src/cli.js rollback-live --settings /path/to/claude/settings.json \
 ```
 
 Token, model, 추정 cost, latency fact는 OTel channel별 namespace로 분리합니다. 누락된 범주는
-`NOT_COLLECTED`로 유지하며 Vendor 추정 비용을 실제 billing 값으로 취급하지 않습니다.
+`NOT_COLLECTED`로 유지하며 Vendor 추정 비용을 실제 billing 값으로 취급하지 않습니다. 이
+fact를 Claude Session 리포트와 함께 보려면 snapshot과 live Source를 같은 로컬 data directory에
+수집해야 합니다. AXtory는 리포트 생성 시 서로 다른 SQLite data directory를 병합하지 않습니다.
 
 ## 기술 MVP의 Non-goal
 
