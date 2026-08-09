@@ -1,7 +1,7 @@
 export interface MetricDefinition {
   key: string;
   description: string;
-  unit: "count" | "tokens";
+  unit: string;
   derivation: "OBSERVED" | "CALCULATED";
   aggregation: "SUM";
   requiredSource: string;
@@ -69,5 +69,83 @@ export const METRIC_CATALOG = {
     requiredSource: "official usage telemetry",
     formulaVersion: "1",
     limitations: ["Claude Local History is not treated as authoritative usage telemetry."],
+  },
+} as const satisfies Record<string, MetricDefinition>;
+
+export const OTEL_METRIC_CATALOG = {
+  "telemetry.event.usage.input": {
+    key: "telemetry.event.usage.input", description: "Input tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Event and metric channels can overlap and are not combined automatically."],
+  },
+  "telemetry.event.usage.output": {
+    key: "telemetry.event.usage.output", description: "Output tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Event and metric channels can overlap and are not combined automatically."],
+  },
+  "telemetry.event.usage.cache_read": {
+    key: "telemetry.event.usage.cache_read", description: "Cache-read tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.usage.cache_creation": {
+    key: "telemetry.event.usage.cache_creation", description: "Cache-creation tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.cost.estimated": {
+    key: "telemetry.event.cost.estimated", description: "Vendor-estimated API request cost",
+    unit: "USD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.event.cost.estimated_micros": {
+    key: "telemetry.event.cost.estimated_micros", description: "Vendor-estimated API request cost in micro-USD",
+    unit: "microUSD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.event.latency.duration": {
+    key: "telemetry.event.latency.duration", description: "API request wall-clock duration",
+    unit: "ms", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel event",
+    formulaVersion: "1", limitations: ["Summed duration is not elapsed session time."],
+  },
+  "telemetry.event.latency.time_to_first_token": {
+    key: "telemetry.event.latency.time_to_first_token", description: "API request time to first token",
+    unit: "ms", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.model.request": {
+    key: "telemetry.event.model.request", description: "Model label attached to one API request event",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Model strings are untrusted allowlisted labels."],
+  },
+  "telemetry.metric.claude_code.token.usage": {
+    key: "telemetry.metric.claude_code.token.usage", description: "Claude Code token usage metric point",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["Keep token type attributes separate."],
+  },
+  "telemetry.metric.claude_code.cost.usage": {
+    key: "telemetry.metric.claude_code.cost.usage", description: "Claude Code estimated cost metric point",
+    unit: "USD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.metric.claude_code.session.count": {
+    key: "telemetry.metric.claude_code.session.count", description: "Claude Code session count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["A session is not a completed unit of work."],
+  },
+  "telemetry.metric.claude_code.lines_of_code.count": {
+    key: "telemetry.metric.claude_code.lines_of_code.count", description: "Claude Code lines-of-code metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This is a Vendor-reported occurrence metric, not impact attribution."],
+  },
+  "telemetry.metric.claude_code.commit.count": {
+    key: "telemetry.metric.claude_code.commit.count", description: "Claude Code commit count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This does not establish causal attribution."],
+  },
+  "telemetry.metric.claude_code.pull_request.count": {
+    key: "telemetry.metric.claude_code.pull_request.count", description: "Claude Code pull request count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This does not establish causal attribution."],
   },
 } as const satisfies Record<string, MetricDefinition>;
