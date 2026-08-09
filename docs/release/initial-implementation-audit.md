@@ -43,6 +43,7 @@ Codex, 업무 시스템, 추가 AI Source, Impact Analysis는 문서화된 후�
 - isolated `CLAUDE_CONFIG_DIR`: 기본 root Session 혼입 없이 0개, returned-view coverage complete
 - SDK 제거 후 Core dependency 3개만 설치한 `npm ci` 상태에서 전체 테스트 통과
 - `npm audit`: 알려진 취약점 0개
+- GitHub Actions: main `421805d` CI completed successfully
 
 실제 Session 내용, ID, 경로, 계정 정보는 공유 보고서나 Git에 포함하지 않았다.
 
@@ -53,7 +54,6 @@ Codex, 업무 시스템, 추가 AI Source, Impact Analysis는 문서화된 후�
 - worktree와 subagent는 공식 옵션·필드는 확인했으나 cross-version 실제 계약은 부분 지원이다.
 - 선택 삭제, 자동 Retention, VerificationRecord UI, UserAnnotation은 후속이다.
 - Token·비용은 History에서 추정하지 않으며 Hook/OTel Phase 전까지 `NOT_COLLECTED`다.
-- GitHub Actions 실행 결과는 로컬 GitHub CLI 인증 부재로 이 감사에서 확인하지 못했다.
 
 이 제한은 구현된 것처럼 숨기지 않고 Capability, Coverage, Availability 또는 후속 Phase로
 표현한다.
