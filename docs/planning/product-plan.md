@@ -114,6 +114,8 @@ Capability 검사
 - opt-in Claude HTTP Hook/OTLP `http/json` Receiver, bounded Spool, 설정 backup/rollback
 - OTel token/model/추정 cost/latency Fact
 - 공식 Codex App Server 기반 thread 수집, 격리 state snapshot, Fact/Semantic 경로
+- GitHub/GitLab PR·CI·Deployment와 Jira/Linear Work Item의 content-free 증분 수집
+- 업무 시스템의 명시적 commit identity와 Local Git commit의 관측 관계
 
 현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
 active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
@@ -124,7 +126,7 @@ active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다
 - 목표 달성 점수, AX 종합점수, ROI 및 시간 절감 추정
 - Cloud Backend, 팀 계정, RBAC, Microservices, Message Broker
 - Plugin Marketplace 및 임의 Repository Plugin 실행
-- Jira/Grafana 연동
+- Grafana 연동과 Jira의 content/comment/changelog 수집
 - Hook·OTel 자동 설정 또는 외부 bind
 - bundled Local/Remote 의미 분석 모델 Provider
 - Claude 내부 JSONL 직접 파싱

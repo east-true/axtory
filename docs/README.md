@@ -15,6 +15,8 @@
 | [1차 구현 완료 감사](release/initial-implementation-audit.md) | 기술 MVP 요구사항별 구현·검증 근거 | 완료 |
 | [2차 구현 완료 감사](release/second-implementation-audit.md) | Phase 4~7 및 선행 신뢰·삭제 계약의 구현·검증 근거 | 완료 |
 | [Phase 8 구현 감사](release/phase8-codex-audit.md) | Codex Connector, 실제 App Server Spike, SPI 후보 결정 | 완료 |
+| [업무 시스템 계약 조사](research/work-system-contracts.md) | GitHub/GitLab/Jira/Linear 공식 API와 최소 수집 계약 | 완료 |
+| [Phase 9 구현 감사](release/phase9-work-systems-audit.md) | PR·CI·Deploy·Work Item Connector와 Local Git 연결 | 완료 |
 | [Connector SPI 후보](architecture/connector-spi-candidate.md) | Claude/Codex 공통 최소 계약과 비공통 경계 | 후보 |
 | [기존 구현 계획](implementation-plan.md) | 최초 Repository 분석과 구현 현황 기록 | 보존 문서 |
 

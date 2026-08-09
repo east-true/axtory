@@ -65,9 +65,9 @@ follow-up work, not completed functionality.
 - Fact analytics: counts, observed dates, cwd distribution when policy allows, tool occurrences,
   assertions, provenance, and availability.
 
-## Deferred boundaries
+## Later phases
 
-Semantic analysis, Git, Hooks, OTel, and Codex were implemented in later phases. AnalysisUnit
-grouping, impact estimates, dashboards, work-system connectors, and a published connector SPI
-remain deferred. Optional live mode is introduced only with Hook/OTel and uses a bounded local
-spool.
+Semantic analysis, Git, Hooks, OTel, Codex, and GitHub/GitLab/Jira/Linear work-system connectors
+were implemented in later phases. AnalysisUnit grouping, impact estimates, dashboards, additional
+AI sources, and a published connector SPI remain deferred. Optional live mode is introduced only
+with Hook/OTel and uses a bounded local spool.

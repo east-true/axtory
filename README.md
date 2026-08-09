@@ -8,9 +8,10 @@ Project planning, architecture, delivery phases, and Connector evidence are inde
 project baseline; implementation status is kept separate from proposed behavior.
 
 The repository contains privacy-safe Claude and Codex contract spikes, a Fixture-backed Core
-walking skeleton, official-API history collectors, opt-in semantic and live analysis, and a
-metadata-minimizing Local Git artifact collector. Raw data stays in local immutable revisions
-while sanitized projections and evidence-aware analysis remain separate.
+walking skeleton, official-API history collectors, opt-in semantic and live analysis, a
+metadata-minimizing Local Git artifact collector, and GitHub/GitLab/Jira/Linear work-system
+connectors. Raw data stays in local immutable revisions while sanitized projections and
+evidence-aware analysis remain separate.
 
 ## Current guarantees
 
@@ -23,6 +24,8 @@ while sanitized projections and evidence-aware analysis remain separate.
 - Semantic findings and Git correlations are never presented as verified facts.
 - Hook and OTel collection require explicit configuration consent, bind to loopback, and can be
   restored from an exact settings backup.
+- Work-system tokens are accepted only from named environment variables; titles, descriptions,
+  comments, logs, user identities, URLs, and repository names are excluded from persisted views.
 
 ## Development
 
@@ -133,6 +136,41 @@ and author identities. An optional user-selected session link is temporal correl
 node dist/src/cli.js collect-git --repo-dir . --data-dir .local/axtory \
   --json-out .local/axtory/git-output.json --session-revision-id revision_...
 ```
+
+## Work systems
+
+GitHub and GitLab expose change requests, CI runs, and deployments. Jira and Linear expose work
+items. Collection uses official HTTPS APIs, bounded pagination, immutable revisions, and a small
+metadata allowlist. Unsupported artifact types are `NOT_SUPPORTED`, not zero.
+
+```sh
+npm run build
+node dist/src/cli.js collect-work-system \
+  --provider github --repository OWNER/REPOSITORY \
+  --data-dir .local/axtory-work --json-out .local/axtory-work/github.json
+
+node dist/src/cli.js collect-work-system \
+  --provider gitlab --project GROUP/PROJECT \
+  --data-dir .local/axtory-work --json-out .local/axtory-work/gitlab.json
+
+node dist/src/cli.js collect-work-system \
+  --provider jira --base-url https://example.atlassian.net --project AX \
+  --data-dir .local/axtory-work --json-out .local/axtory-work/jira.json
+
+node dist/src/cli.js collect-work-system \
+  --provider linear --team-id TEAM_ID \
+  --data-dir .local/axtory-work --json-out .local/axtory-work/linear.json
+```
+
+Configure `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_EMAIL`/`JIRA_API_TOKEN`, or `LINEAR_API_KEY`
+through the shell's secret facility before running the applicable command. Public GitHub and GitLab
+repositories can be read without a token, subject to their API limits. Use `--token-env` and, for
+Jira, `--email-env` to select different environment variable names; literal credential flags are
+rejected. `--page-size` and `--max-pages` bound enumeration.
+
+To link explicit PR/CI/deployment commit identities to a previously collected Local Git snapshot,
+pass `--git-revision-id revision_...`. A match is `OBSERVED`; AXtory does not infer a work item/PR
+link or claim authorship, causality, completion, or AI contribution.
 
 ## Optional live Hook and OTel collection
 

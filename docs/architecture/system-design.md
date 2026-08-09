@@ -62,10 +62,12 @@ connectors/git/
   read-only local snapshot, normalizer, collector
 connectors/codex/
   discovery, isolated App Server adapter, pagination, normalizer, collector
+connectors/work-systems/
+  HTTPS boundary, GitHub/GitLab/Jira/Linear adapters, pagination, normalizer, collector
 projections/
-  session projection, future analysis-unit projection
+  session/work-artifact projection, future analysis-unit projection
 analysis/
-  metric catalog, fact analyzer, semantic analyzer, Git correlation, OTel facts
+  metric catalog, fact analyzer, semantic analyzer, Git/work correlation, OTel facts
 outputs/
   console, JSON, output policy, export audit
 live/
@@ -232,6 +234,18 @@ repair scan을 요청하지 않는다. experimental turn pagination과 내부 JS
 stdio adapter는 `initialize`, `thread/list`, `thread/read` 외 client request를 만들 수 없고
 server-initiated request를 거부한다. cursor와 offset, active consistency, sourceKind, lineage는
 Vendor 내부 계약이며 Claude DTO에 맞추지 않는다.
+
+### 업무 시스템
+
+GitHub/GitLab의 PR·MR, CI run/pipeline, deployment와 Jira/Linear work item을 공통
+`WorkArtifact` 내부 형태로 정규화한다. 이 형식은 Public SPI가 아니며 각 Vendor의 page/cursor,
+인증, 상태 enum은 adapter 안에 남긴다. 모든 요청은 HTTPS만 허용하고 redirect, timeout,
+16 MiB 응답 상한을 적용한다.
+
+Raw view도 Vendor 전체 응답이 아니라 ID·상태·source timestamp·명시적 commit link와 해시된
+environment/key 식별자만 남기는 allowlist다. title, body/description, comment, log, user identity,
+URL, repository name은 저장하지 않는다. commit identity는 Local Git과 동일하게 SHA-256한 뒤
+일치하는 경우에만 `OBSERVED` relation으로 결합한다.
 
 ## 12. CollectionPolicy와 데이터 분류
 

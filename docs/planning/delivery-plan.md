@@ -157,9 +157,29 @@ Claude/Codex 공통 최소 계약은 `architecture/connector-spi-candidate.md`�
 공개 SPI는 아직 만들지 않았다. offset/cursor, SDK/stdio lifecycle, active consistency,
 sourceKind와 lineage는 Connector 내부에 남겼다.
 
-## Phase 9~11
+## Phase 9: 업무 시스템
 
-- **Phase 9 업무 시스템:** GitHub/GitLab/CI/Jira/Linear/PR/Deploy
+**목표:** 공식 업무 시스템 API에서 PR/MR, CI, Deployment, Work Item의 content-free 사실을
+증분 수집하고, 명시적 commit identity만 Local Git과 연결한다.
+
+**현재 결과:** 완료했다. GitHub/GitLab은 Change Request·CI Run·Deployment를, Jira/Linear는
+Work Item을 제공한다. HTTPS-only 요청, 응답 크기·timeout·redirect 제한, cursor/page pagination,
+중복·상한의 partial coverage, immutable Revision, deterministic normalization, Fact metric,
+Console/JSON 출력을 구현했다. 지원하지 않는 종류는 `NOT_SUPPORTED`로 남긴다.
+
+Vendor title, description/body, comment, log, 사용자 신원, URL, 저장소명은 요청 또는 source
+view allowlist에서 제외한다. CLI는 credential literal을 거부하고 환경변수에서만 읽는다.
+업무 시스템이 명시한 commit SHA와 Local Git의 hashed commit identity가 같을 때만
+`OBSERVED` 관계를 만든다. Work Item↔PR, session↔commit, 작성·인과·완료·AI 기여 관계는
+추론하지 않는다.
+
+**검증:** 공식 문서 기반 응답 shape의 GitHub/GitLab/Jira/Linear 합성 contract test,
+pagination/HTTP/normalization/incremental/privacy test, 공개 GitHub 실제 bounded collection과
+Local Git 재수집 연결을 통과했다. 인증이 필요한 GitLab/Jira/Linear 실제 계정 smoke는
+수행하지 않았으며 Vendor 운영환경 전체를 검증했다는 의미가 아니다.
+
+## Phase 10~11
+
 - **Phase 10 추가 AI Source:** Gemini CLI, OpenCode, Cursor, Aider 등
 - **Phase 11 Impact Analysis:** 충분한 사용자별 baseline 이후 ESTIMATED 효과 분석
 
@@ -172,5 +192,6 @@ sourceKind와 lineage는 Connector 내부에 남겼다.
 5. **완료:** 공식 Claude Local History를 Revision/Normalization/Analysis/Output 경로에 연결
 6. **완료:** Phase 4~7과 선행 신뢰·삭제 계약
 7. **완료:** Phase 8 Codex App Server Connector와 Public SPI 후보 감사
+8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 
-자동 AnalysisUnit, ROI, Dashboard, 업무 시스템은 다음 범위다.
+자동 AnalysisUnit, ROI, Dashboard, 추가 AI Source는 다음 범위다.
