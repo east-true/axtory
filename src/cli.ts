@@ -34,6 +34,13 @@ import { GitLabWorkSystemApi } from "./connectors/work-systems/gitlab.js";
 import { JiraWorkSystemApi } from "./connectors/work-systems/jira.js";
 import { LinearWorkSystemApi } from "./connectors/work-systems/linear.js";
 import { discoverWorkSystem, type WorkSystemApi } from "./connectors/work-systems/types.js";
+import { AiderSourceApi } from "./connectors/additional-ai/aider.js";
+import { collectAdditionalAiSource, renderAdditionalAiCollection } from "./connectors/additional-ai/collector.js";
+import { CursorSourceApi } from "./connectors/additional-ai/cursor.js";
+import { discoverAdditionalAiSource } from "./connectors/additional-ai/discovery.js";
+import { GeminiCliSourceApi } from "./connectors/additional-ai/gemini.js";
+import { OpenCodeSourceApi } from "./connectors/additional-ai/opencode.js";
+import type { AdditionalAiProvider, AdditionalAiSourceApi } from "./connectors/additional-ai/types.js";
 
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -310,6 +317,47 @@ async function main(args: readonly string[]): Promise<void> {
     process.stdout.write(renderWorkSystemCollection(output));
     return;
   }
+  if (command === "collect-additional-ai") {
+    const providerValue = option(args, "--provider")?.toLowerCase();
+    const projectDirectory = option(args, "--project-dir");
+    const dataDirectory = option(args, "--data-dir");
+    const jsonOutputPath = option(args, "--json-out");
+    if (!providerValue || !projectDirectory || !dataDirectory || !jsonOutputPath) {
+      throw new Error("collect-additional-ai requires --provider, --project-dir, --data-dir, and --json-out");
+    }
+    const providers: Readonly<Record<string, AdditionalAiProvider>> = {
+      gemini: "GEMINI_CLI", opencode: "OPENCODE", cursor: "CURSOR", aider: "AIDER",
+    };
+    const provider = providers[providerValue];
+    if (!provider) throw new Error("--provider must be gemini, opencode, cursor, or aider");
+    const resolvedProject = resolve(projectDirectory);
+    const historyFile = option(args, "--history-file") ?? join(resolvedProject, ".aider.chat.history.md");
+    if (provider !== "AIDER" && option(args, "--history-file")) {
+      throw new Error("--history-file is supported only for Aider");
+    }
+    const discovery = await discoverAdditionalAiSource(provider, {
+      projectDirectory: resolvedProject,
+      ...(provider === "AIDER" ? { historyFile: resolve(historyFile) } : {}),
+    });
+    let api: AdditionalAiSourceApi;
+    if (provider === "AIDER") {
+      api = new AiderSourceApi({ projectDirectory: resolvedProject, historyFile: resolve(historyFile) });
+    } else {
+      const executablePath = availableValue(discovery.sourceProfile.executablePath, `${provider} executable`);
+      api = provider === "GEMINI_CLI"
+        ? new GeminiCliSourceApi({ executablePath, projectDirectory: resolvedProject })
+        : provider === "OPENCODE"
+          ? new OpenCodeSourceApi({ executablePath, projectDirectory: resolvedProject })
+          : new CursorSourceApi({ executablePath, projectDirectory: resolvedProject });
+    }
+    const limitValue = option(args, "--limit");
+    const output = await collectAdditionalAiSource(api, discovery, {
+      dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
+      ...(limitValue ? { limit: positiveInteger(limitValue, "--limit") } : {}),
+    });
+    process.stdout.write(renderAdditionalAiCollection(output));
+    return;
+  }
   if (command === "collect-git") {
     const repositoryDirectory = option(args, "--repo-dir");
     const dataDirectory = option(args, "--data-dir");
@@ -429,7 +477,7 @@ async function main(args: readonly string[]): Promise<void> {
     return;
   }
   if (command !== "collect-fixture") {
-    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
+    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|collect-additional-ai|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
   }
   const fixture = option(args, "--fixture");
   const dataDirectory = option(args, "--data-dir");
