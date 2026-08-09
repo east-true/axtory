@@ -3,7 +3,7 @@ export interface MetricDefinition {
   description: string;
   unit: string;
   derivation: "OBSERVED" | "CALCULATED";
-  aggregation: "SUM";
+  aggregation: "SUM" | "LATEST";
   requiredSource: string;
   formulaVersion: string;
   limitations: readonly string[];
@@ -167,4 +167,49 @@ export const WORK_METRIC_CATALOG = {
   "work.deployment.failed.count": workMetric("work.deployment.failed.count", "Failed deployments"),
   "work.item.count": workMetric("work.item.count", "Work items in the returned view"),
   "work.item.completed.count": workMetric("work.item.completed.count", "Completed work items"),
+} as const satisfies Record<string, MetricDefinition>;
+
+const usageMetric = (
+  key: string,
+  description: string,
+  unit: string,
+  limitations: readonly string[],
+): MetricDefinition => ({
+  key, description, unit, derivation: "CALCULATED", aggregation: "LATEST",
+  requiredSource: "Latest retained normalized session revisions", formulaVersion: "1", limitations,
+});
+
+export const USAGE_METRIC_CATALOG = {
+  "usage.report.session.count": usageMetric(
+    "usage.report.session.count", "Sessions represented by latest revisions in the selected scope", "count",
+    ["Sessions are usage containers, not completed work."],
+  ),
+  "usage.report.message.count": usageMetric(
+    "usage.report.message.count", "Message occurrences in latest selected session views", "count",
+    ["Partial and compacted views can omit messages."],
+  ),
+  "usage.report.tool.invocation.count": usageMetric(
+    "usage.report.tool.invocation.count", "Tool-use occurrences in latest selected session views", "count",
+    ["Tool occurrences do not establish productivity or successful outcomes."],
+  ),
+  "usage.report.active_day.count": usageMetric(
+    "usage.report.active_day.count", "UTC calendar days with source-timestamped selected activity", "day",
+    ["Undated observations are absent and UTC days may differ from the user's local calendar."],
+  ),
+  "usage.report.session.with_tools.percentage": usageMetric(
+    "usage.report.session.with_tools.percentage", "Percentage of selected sessions containing a tool occurrence", "percent",
+    ["Partial session views can undercount tool usage."],
+  ),
+  "usage.report.assistant_per_user_message.ratio": usageMetric(
+    "usage.report.assistant_per_user_message.ratio", "Assistant message occurrences divided by user message occurrences", "ratio",
+    ["Message boundaries are Vendor-defined and the ratio is not conversational quality."],
+  ),
+  "usage.report.tool_per_assistant_message.ratio": usageMetric(
+    "usage.report.tool_per_assistant_message.ratio", "Tool occurrences divided by assistant message occurrences", "ratio",
+    ["The ratio is a usage pattern, not efficiency or autonomy."],
+  ),
+  "usage.report.semantic.assertion.count": usageMetric(
+    "usage.report.semantic.assertion.count", "Opt-in rule-matched unverified assistant assertions", "count",
+    ["This counts INFERRED assertion records and does not verify the assertions."],
+  ),
 } as const satisfies Record<string, MetricDefinition>;

@@ -41,6 +41,7 @@ import { discoverAdditionalAiSource } from "./connectors/additional-ai/discovery
 import { GeminiCliSourceApi } from "./connectors/additional-ai/gemini.js";
 import { OpenCodeSourceApi } from "./connectors/additional-ai/opencode.js";
 import type { AdditionalAiProvider, AdditionalAiSourceApi } from "./connectors/additional-ai/types.js";
+import { generateUsageReport, renderUsageReport } from "./analysis/usage-report.js";
 
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -249,6 +250,32 @@ async function main(args: readonly string[]): Promise<void> {
     });
     process.stdout.write(`AXtory semantic analysis [INFERRED]: ${summary.assertionsFound} unverified assertions ` +
       `from ${summary.documentsAnalyzed} assistant messages.\n${summary.limitation}\n`);
+    return;
+  }
+  if (command === "report-usage") {
+    const dataDirectory = option(args, "--data-dir");
+    const jsonOutputPath = option(args, "--json-out");
+    if (!dataDirectory || !jsonOutputPath) {
+      throw new Error("report-usage requires --data-dir and --json-out");
+    }
+    const sourceNames: Readonly<Record<string, string>> = {
+      claude: "CLAUDE_CODE", codex: "CODEX", fixture: "FIXTURE",
+      gemini: "ADDITIONAL_AI_GEMINI_CLI", opencode: "ADDITIONAL_AI_OPENCODE",
+      cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER",
+    };
+    const requestedSources = options(args, "--source").map((value) => {
+      const sourceType = sourceNames[value.toLowerCase()];
+      if (!sourceType) throw new Error("--source must be claude, codex, fixture, gemini, opencode, cursor, or aider");
+      return sourceType;
+    });
+    const output = await generateUsageReport({
+      dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
+      ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
+      ...(option(args, "--until") ? { until: option(args, "--until")! } : {}),
+      ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
+      allowConversationContent: args.includes("--allow-conversation-content"),
+    });
+    process.stdout.write(renderUsageReport(output));
     return;
   }
   if (command === "collect-work-system") {
@@ -477,7 +504,7 @@ async function main(args: readonly string[]): Promise<void> {
     return;
   }
   if (command !== "collect-fixture") {
-    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|collect-additional-ai|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
+    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|collect-additional-ai|report-usage|analyze-rule|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
   }
   const fixture = option(args, "--fixture");
   const dataDirectory = option(args, "--data-dir");
