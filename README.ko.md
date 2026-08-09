@@ -12,7 +12,9 @@ AXtory는 AI 지원 업무를 관찰하는 local-first 도구입니다. Claude C
 이 저장소에는 개인정보를 배제한 Claude·Codex 계약 Spike, Fixture 기반 Core Walking
 Skeleton, 공식 API History Collector, opt-in 의미·실시간 분석, 최소 metadata만 수집하는
 Local Git Artifact Collector, GitHub/GitLab/Jira/Linear 업무 시스템 Connector가 있습니다.
-Raw data는 로컬 불변 Revision에 보관하며, 정제된 Projection과 근거 기반 분석은 분리합니다.
+로컬 Usage Report는 최신 보존 Revision을 기간·Source·Session·개인정보를 배제한 Tool 패턴으로
+집계합니다. Raw data는 로컬 불변 Revision에 보관하며, 정제된 Projection과 근거 기반 분석은
+분리합니다.
 
 ## 현재 보장 사항
 
@@ -152,6 +154,36 @@ node dist/src/cli.js collect-additional-ai \
 참고하세요.
 
 ## 의미 분석과 Git 분석
+
+하나 이상의 AI Source를 수집한 뒤 사용자용 Usage Report를 생성할 수 있습니다.
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-codex \
+  --json-out .local/axtory-codex/usage-report.json \
+  --source codex
+```
+
+여러 Provider를 합치려면 `--source`를 반복하고, 수집된 모든 Session Source를 포함하려면
+생략합니다. `--since`와 `--until`은 ISO-8601 시각을 받으며 원천 시각 기준 반개구간을 만듭니다.
+리포트는 SourceObject별 최신 Revision만 사용하고 partial/unknown coverage를 드러내며, custom
+extension 이름은 개인정보를 배제한 Tool 범주로 묶고 UTC 일별 활동은 JSON에 포함합니다.
+schema v5 이전에 수집되어 observed head relation이 없는 Source는 명시적인 partial legacy
+fallback으로 유지합니다. Count와 비율은 사용 패턴이지 생산성·품질·AI 효과가 아닙니다.
+
+의미 범주는 기본적으로 꺼져 있습니다. 보존된 대화 내용을 로컬에서 읽어 좁은 Rule에 걸린
+검증되지 않은 Assertion을 통합하려면 명시적으로 동의합니다. 한 번에 최대 100개 eligible
+Revision만 분석하므로 이보다 크면 Source나 기간 범위를 줄입니다.
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-codex \
+  --json-out .local/axtory-codex/usage-report.json \
+  --source codex --allow-conversation-content
+```
+
+기간이 제한된 리포트에서도 로컬 Rule Analyzer는 선택된 최신 Revision 전체를 읽지만, 리포트에는
+기간 안 Message Evidence가 뒷받침하는 Assertion만 포함합니다.
 
 Rule 분석은 사용자가 명시적으로 동의한 경우에만 보존된 대화 내용을 읽습니다. Assertion
 match는 검증이 아니라 `INFERRED`입니다.

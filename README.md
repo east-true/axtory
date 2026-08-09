@@ -12,8 +12,9 @@ project baseline; implementation status is kept separate from proposed behavior.
 The repository contains privacy-safe Claude and Codex contract spikes, a Fixture-backed Core
 walking skeleton, official-API history collectors, opt-in semantic and live analysis, a
 metadata-minimizing Local Git artifact collector, and GitHub/GitLab/Jira/Linear work-system
-connectors. Raw data stays in local immutable revisions while sanitized projections and
-evidence-aware analysis remain separate.
+connectors. A local usage report aggregates the latest retained revisions into time, source,
+session, and privacy-safe tool patterns. Raw data stays in local immutable revisions while
+sanitized projections and evidence-aware analysis remain separate.
 
 ## Current guarantees
 
@@ -154,6 +155,37 @@ contain only aggregate counts, Availability, coverage, and evidence status. See
 contract evidence and limitations.
 
 ## Semantic and Git analysis
+
+Generate a user-facing usage report after collecting one or more AI sources:
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-codex \
+  --json-out .local/axtory-codex/usage-report.json \
+  --source codex
+```
+
+Repeat `--source` to combine selected providers, or omit it to include every collected session
+source. `--since` and `--until` accept ISO-8601 timestamps and form a half-open source-time window.
+The report uses only the latest Revision per SourceObject, exposes partial/unknown coverage,
+groups custom extension names into privacy-safe tool categories, and includes daily UTC activity
+in JSON. Sources collected before schema v5 without an observed head relation remain visible as
+an explicit partial legacy fallback. Counts and ratios describe usage patterns, not productivity,
+quality, or AI impact.
+
+Semantic categories remain off by default. To read retained conversation content locally and
+integrate narrow rule-matched, unverified assertions, give explicit consent. One invocation is
+limited to 100 eligible revisions; narrow the source or time window for larger histories:
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-codex \
+  --json-out .local/axtory-codex/usage-report.json \
+  --source codex --allow-conversation-content
+```
+
+For a bounded report, the local rule analyzer reads each selected latest Revision in full but
+includes only assertions backed by messages inside the report window.
 
 Rule analysis reads retained conversation content only after explicit consent. Its assertion
 matches are `INFERRED`, never verification:

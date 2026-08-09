@@ -69,7 +69,7 @@ connectors/additional-ai/
 projections/
   session/work-artifact projection, future analysis-unit projection
 analysis/
-  metric catalog, fact analyzer, semantic analyzer, Git/work correlation, OTel facts
+  metric catalog, fact analyzer, usage report, semantic analyzer, Git/work correlation, OTel facts
 outputs/
   console, JSON, output policy, export audit
 live/
@@ -127,7 +127,9 @@ Collector와 같은 환경으로 제한한다.
 - `RawObservation`: 원천 payload reference와 Provenance
 
 동일 SourceObject와 동일 hash는 새 Revision을 만들지 않는다. 내용이 변하면 새 Revision을
-추가하며 기존 Revision을 덮어쓰지 않는다.
+추가하며 기존 Revision을 덮어쓰지 않는다. 완료된 CollectionRun이 실제로 관찰한 Revision을
+별도 relation으로 기록하므로 예전 content hash가 다시 나타나도 가장 최근 생성 Revision으로
+오인하지 않는다. 실패한 CollectionRun의 relation은 current head 선택에서 제외한다.
 
 ### Canonical 관찰
 
@@ -150,6 +152,15 @@ Lineage 관계 후보는 `RESUMED_FROM`, `FORKED_FROM`, `SUBAGENT_OF`, `COMPACTE
 - `AnalysisRun`: Analyzer·버전·입력 Revision·파라미터·비용 이력
 - `AnalysisRecord`: 값, Derivation, Availability, Evidence
 - `UserAnnotation`: 원본 분석을 덮어쓰지 않는 사용자 주장
+
+`UsageReportAnalyzer`는 SourceObject마다 가장 최근에 수집된 Revision 하나만 선택해 Session
+Evidence를 합산한다. 전체 이력 Revision을 모두 더해 재수집을 사용량으로 오인하지 않는다.
+기간 범위는 `occurredAt`의 `[since, until)`이며 collector 시각으로 누락 시각을 대체하지 않는다.
+Session 분포, Source별 count, UTC 일별 timeline과 안전한 Tool 범주는 `CALCULATED`다.
+
+Rule Semantic 결과는 별도 `INFERRED` AnalysisRun이며 Conversation content 동의가 있을 때만
+생성한다. Usage Report는 현재 Revision과 연결된 완료 Semantic run만 집계한다. 이 리포트의
+비율은 사용 패턴이지 성과·품질·자율성·AI 기여·Impact가 아니다.
 
 ## 7. 신뢰 모델
 
@@ -198,6 +209,7 @@ AnalysisRecord, Policy, ExportRun, index를 저장한다.
 - WAL, foreign key, busy timeout 사용
 - 짧은 `BEGIN IMMEDIATE` 쓰기 transaction
 - `PRAGMA user_version` 기반 forward migration
+- schema v5의 completed CollectionRun↔observed Revision relation과 migration-time legacy head
 - DB 및 데이터 디렉터리는 기본적으로 사용자 전용 권한
 - Snapshot MVP는 single writer
 
@@ -342,6 +354,7 @@ Contract Test로 검증한다.
 - Claude/Codex 공통 최소 Connector 계약 후보 문서
 - GitHub/GitLab/Jira/Linear 업무 시스템 Connector와 explicit Git relation
 - Gemini CLI/OpenCode/Cursor/Aider capability별 Source Connector
+- 최신 Revision·기간·Source·Session·Tool 범주의 Usage Analytics Console/JSON 리포트
 
 ### 미구현 또는 추가 Spike 필요
 

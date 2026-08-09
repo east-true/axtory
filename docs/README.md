@@ -19,6 +19,7 @@
 | [Phase 9 구현 감사](release/phase9-work-systems-audit.md) | PR·CI·Deploy·Work Item Connector와 Local Git 연결 | 완료 |
 | [추가 AI Source 계약 조사](research/additional-ai-contracts.md) | Gemini CLI/OpenCode/Cursor/Aider 공식 읽기 계약과 차이 | 완료 |
 | [Phase 10 구현 감사](release/phase10-additional-ai-audit.md) | 추가 AI Source의 증분 수집·Privacy·Coverage 검증 | 완료 |
+| [Phase 10.5 구현 감사](release/phase10-5-usage-analytics-audit.md) | 최신 Revision 기반 사용자용 Usage Analytics 리포트 | 완료 |
 | [Connector SPI 후보](architecture/connector-spi-candidate.md) | 다중 Connector 공통 최소 계약과 비공통 경계 | 후보 |
 | [기존 구현 계획](implementation-plan.md) | 최초 Repository 분석과 구현 현황 기록 | 보존 문서 |
 

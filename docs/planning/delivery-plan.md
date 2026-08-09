@@ -197,6 +197,28 @@ model, identity, tool payload는 출력하지 않는다.
 CLI 수집을 통과했다. 감사 환경에 Vendor CLI가 없어 Gemini/OpenCode/Cursor 실제 설치본과
 Aider가 생성한 실제 history의 smoke는 수행하지 않았다.
 
+## Phase 10.5: Usage Analytics
+
+**목표:** 수집·정규화된 내부 Evidence를 사용자가 직접 읽을 수 있는 로컬 Usage Report로
+통합한다. 수집 반복으로 쌓인 Revision을 중복 합산하지 않고 SourceObject별 최신 Revision만
+사용한다.
+
+**현재 결과:** 완료했다. `report-usage`는 전체 또는 반복 `--source` 범위에서 Session·Message·
+Tool occurrence, 사용자/Assistant 메시지, Session당 분포, 활성 UTC 일수, Tool 사용 Session
+비율, 메시지·Tool 비율, Source별 집계, UTC 일별 timeline을 제공한다. Tool 이름은 안전한
+범주로 축소하고 custom MCP/dynamic 이름을 출력하지 않는다.
+
+`--since`/`--until`은 원천 `occurredAt`의 반개구간이며, 시각이 없는 관찰은 bounded report에서
+제외한 수와 이유를 남긴다. partial/compacted/unknown view는 `PARTIAL`로 유지한다. 의미 분석은
+기본 `NOT_COLLECTED`이며 `--allow-conversation-content`를 명시한 경우에만 현재 보존 Revision의
+Rule Semantic Analyzer를 실행해 검증되지 않은 `INFERRED` 범주로 통합한다.
+schema v5 이전 Source처럼 완료 Collection head relation이 없으면 migration 시 고정한 Revision을
+legacy fallback으로 포함하되 `PARTIAL`과 개수를 출력한다.
+
+**검증:** 최신 Revision 선택, 기간 내 미상 시각 제외, Source unavailable null, Tool privacy,
+분포·timeline·semantic opt-in, 실제 child-process CLI를 합성 테스트로 검증했다. 비어 있지 않은
+로컬 Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON에 없음을 확인했다.
+
 ## Phase 11
 
 - **Phase 11 Impact Analysis:** 충분한 사용자별 baseline 이후 ESTIMATED 효과 분석
@@ -212,5 +234,7 @@ Aider가 생성한 실제 history의 smoke는 수행하지 않았다.
 7. **완료:** Phase 8 Codex App Server Connector와 Public SPI 후보 감사
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
+10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
 
-자동 AnalysisUnit, ROI/Impact Analysis, Dashboard는 다음 범위다.
+자동 AnalysisUnit, ROI/Impact Analysis, Dashboard는 다음 범위다. Usage Report는 Dashboard
+없이도 현재 로컬 데이터를 직접 읽을 수 있는 CLI 계층으로 완료했다.

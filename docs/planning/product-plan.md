@@ -104,7 +104,8 @@ Capability 검사
 
 - Claude 공식 API의 민감정보 없는 구조적 Contract Spike
 - 합성 `normal-session` Walking Skeleton
-- SQLite schema v2, Blob Store, Revision, SessionProjection, Fact Analyzer
+- SQLite schema v5, Blob Store, Revision, completed CollectionRun의 observed Revision head,
+  SessionProjection, Fact Analyzer
 - 반복 수집 중복 방지 및 중단 실행 reconciliation 테스트
 - 공식 Claude History의 제한된 실제 수집과 동일 view 증분 재수집 검증
 - 기본 로컬 CollectionPolicy와 marker-guarded `PURGE_ALL`
@@ -118,6 +119,8 @@ Capability 검사
 - GitHub/GitLab PR·CI·Deployment와 Jira/Linear Work Item의 content-free 증분 수집
 - 업무 시스템의 명시적 commit identity와 Local Git commit의 관측 관계
 - Gemini CLI/OpenCode/Cursor/Aider의 capability별 증분 수집과 명시적 coverage
+- 최신 Revision 기반 기간·Source·Session·Tool Usage Analytics Console/JSON 리포트
+- 명시적 content 동의가 있을 때만 Usage Report에 통합되는 Rule Semantic 범주
 
 현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
 active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
