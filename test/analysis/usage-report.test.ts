@@ -6,9 +6,12 @@ import { join, resolve } from "node:path";
 
 import { generateUsageReport } from "../../src/analysis/usage-report.js";
 import { stableId } from "../../src/core/canonical-json.js";
+import { executeSelectiveDeletion } from "../../src/core/deletion.js";
 import type { NormalizedObservation } from "../../src/core/records.js";
 import { runWalkingSkeleton } from "../../src/core/pipeline.js";
 import { AxtoryDatabase } from "../../src/core/storage.js";
+import { ingestLiveSpool } from "../../src/live/ingestion.js";
+import { BoundedSpool } from "../../src/live/spool.js";
 
 test("usage report selects only the latest revision and preserves bounded-time uncertainty", async () => {
   const directory = await mkdtemp(join(tmpdir(), "axtory-usage-report-"));
@@ -85,7 +88,7 @@ test("usage report selects only the latest revision and preserves bounded-time u
     const verifier = new AxtoryDatabase(join(directory, "axtory.sqlite3"));
     try {
       assert.equal(verifier.completedAnalysisForExactInputs(
-        "USAGE_REPORT_ANALYZER", "usage-report/1", [revisionId],
+        "USAGE_REPORT_ANALYZER", "usage-report/2", [revisionId],
       )?.records.length, 8);
       assert.equal(verifier.count("export_runs"), 2);
     } finally {
@@ -138,6 +141,133 @@ test("usage report does not turn an unavailable source or invalid time range int
       dataDirectory: directory, jsonOutputPath: join(directory, "invalid.json"),
       since: "2026-02-04T00:00:00Z", until: "2026-02-03T00:00:00Z",
     }), /--since must be earlier/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("usage report exposes evidence deletion, OTel channels, and connected verification separately", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-usage-trust-"));
+  try {
+    const walking = await runWalkingSkeleton({
+      fixturePath: resolve("fixtures/synthetic/normal-session.json"), dataDirectory: directory,
+      jsonOutputPath: join(directory, "fixture.json"),
+      now: () => new Date("2026-08-09T00:00:00.000Z"), randomId: () => "trust-fixture",
+    });
+    const database = new AxtoryDatabase(walking.databasePath);
+    try {
+      const fact = database.inventory().analysisRecords.find((item) => item.key === "session.count");
+      assert.ok(fact);
+      database.insertVerificationRecord({
+        id: "verification-trust", analysisRecordId: fact.analysisRecordId,
+        verificationType: "HUMAN_ACCEPTANCE", status: "VERIFIED", provenance: "USER_PROVIDED",
+        evidenceIds: [], note: "must not be exported", verifiedAt: "2026-08-09T00:01:00.000Z",
+      });
+      database.insertVerificationRecord({
+        id: "verification-untrusted", analysisRecordId: fact.analysisRecordId,
+        verificationType: "PRIVATE\nTYPE" as never, status: "UNTRUSTED\u001b" as never,
+        provenance: "USER_PROVIDED", evidenceIds: [], note: null,
+        verifiedAt: "2026-08-09T00:01:01.000Z",
+      });
+      database.insertUserAnnotation({
+        id: "annotation-trust", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
+        assertion: "private annotation must not be exported", createdAt: "2026-08-09T00:01:00.000Z",
+      });
+    } finally {
+      database.close();
+    }
+
+    const spool = new BoundedSpool(join(directory, "spool"));
+    await spool.append({
+      channel: "CLAUDE_OTEL_LOGS", receivedAt: "2026-08-09T00:02:00.000Z",
+      payload: { resourceLogs: [{ scopeLogs: [{ logRecords: [{
+        timeUnixNano: "1786233720000000000", attributes: [
+          { key: "event.name", value: { stringValue: "api_request" } },
+          { key: "model", value: { stringValue: "claude-synthetic-1" } },
+          { key: "input_tokens", value: { intValue: "120" } },
+          { key: "output_tokens", value: { intValue: "30" } },
+          { key: "cost_usd", value: { doubleValue: 0.0123 } },
+          { key: "duration_ms", value: { intValue: "456" } },
+        ],
+      }] }] }] },
+    });
+    await spool.append({
+      channel: "CLAUDE_OTEL_METRICS", receivedAt: "2026-08-09T00:02:00.000Z",
+      payload: { resourceMetrics: [{ scopeMetrics: [{ metrics: [{
+        name: "claude_code.token.usage", unit: "tokens", sum: { dataPoints: [{
+          asInt: "120", timeUnixNano: "1786233720000000000", attributes: [
+            { key: "type", value: { stringValue: "input" } },
+            { key: "model", value: { stringValue: "claude-synthetic-1" } },
+          ],
+        }] },
+      }] }] }] },
+    });
+    let sequence = 0;
+    await ingestLiveSpool({
+      dataDirectory: directory, jsonOutputPath: join(directory, "live.json"),
+      now: () => new Date("2026-08-09T00:03:00.000Z"), randomId: () => `live-${++sequence}`,
+    });
+    const untrustedDatabase = new AxtoryDatabase(walking.databasePath);
+    try {
+      const logRevision = untrustedDatabase.latestRevisions()
+        .find((item) => item.sourceType === "CLAUDE_OTEL_LOGS");
+      assert.ok(logRevision);
+      untrustedDatabase.insertObservations([{
+        id: "obs-untrusted-model", sourceRevisionId: logRevision.revisionId,
+        stableKey: "otel-log:untrusted", kind: "EVENT", derivation: "OBSERVED",
+        provenance: "OFFICIAL_API", dataClassification: "LOCAL_METADATA",
+        occurredAt: "2026-08-09T00:02:01.000Z", timeQuality: "SOURCE_REPORTED",
+        payload: { model: "PRIVATE\nMODEL", input_tokens: 1 },
+      }]);
+    } finally {
+      untrustedDatabase.close();
+    }
+    const report = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
+      now: () => new Date("2026-08-09T00:04:00.000Z"), randomId: () => `usage-${++sequence}`,
+    });
+    assert.equal(report.evidence.status, "PRESENT");
+    assert.equal(report.telemetry.availability, "AVAILABLE");
+    assert.deepEqual(report.telemetry.categories, {
+      tokens: "AVAILABLE", model: "AVAILABLE", cost: "AVAILABLE", latency: "AVAILABLE",
+    });
+    assert.equal(report.telemetry.facts.some((item) => item.channel === "EVENT" &&
+      item.key === "telemetry.event.usage.input" && item.value === 121), true);
+    assert.equal(report.telemetry.facts.some((item) => item.channel === "METRIC" &&
+      item.key === "telemetry.metric.claude_code.token.usage" && item.value === 120), true);
+    assert.equal(report.verification.availability, "AVAILABLE");
+    assert.deepEqual(report.verification.byTypeAndStatus, [
+      { verificationType: "HUMAN_ACCEPTANCE", status: "VERIFIED", count: 1 },
+      { verificationType: "UNKNOWN", status: "UNKNOWN", count: 1 },
+    ]);
+    assert.equal(report.annotations.records, 1);
+    const savedReport = await readFile(join(directory, "usage.json"), "utf8");
+    assert.equal(savedReport.includes("must not be exported"), false);
+    assert.equal(savedReport.includes("private annotation"), false);
+    assert.equal(savedReport.includes("PRIVATE"), false);
+    assert.equal(savedReport.includes("UNTRUSTED"), false);
+
+    await executeSelectiveDeletion({
+      dataDirectory: directory, mode: "DELETE_RAW_ONLY",
+      target: { revisionIds: [walking.output.sourceRevisionId] }, confirmation: "DELETE_RAW_ONLY",
+      now: () => new Date("2026-08-09T00:05:00.000Z"), randomId: () => "delete-trust",
+    });
+    const afterDeletion = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage-after-deletion.json"),
+      now: () => new Date("2026-08-09T00:06:00.000Z"), randomId: () => `after-${++sequence}`,
+    });
+    assert.equal(afterDeletion.totals.availability, "PARTIAL");
+    assert.equal(afterDeletion.evidence.status, "EVIDENCE_REMOVED");
+    assert.equal(afterDeletion.evidence.revisionsWithoutRaw, 1);
+    assert.equal(afterDeletion.verification.availability, "PARTIAL");
+    assert.equal(afterDeletion.verification.analysisEvidence.evidenceRemoved, 2);
+    const verifier = new AxtoryDatabase(walking.databasePath);
+    try {
+      assert.equal(verifier.inventory().analysisRecords.some((item) =>
+        item.key === "usage.report.session.count" && item.evidenceStatus === "EVIDENCE_REMOVED"), true);
+    } finally {
+      verifier.close();
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

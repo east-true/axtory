@@ -9,6 +9,8 @@ import type {
   RawObservation,
   UserAnnotation,
   VerificationRecord,
+  VerificationStatus,
+  VerificationType,
 } from "./records.js";
 import type { CollectionPolicy } from "./policy.js";
 
@@ -481,6 +483,59 @@ export class AxtoryDatabase {
       record.id, record.analysisRecordId, record.verificationType, record.status,
       record.provenance, canonicalJson(record.evidenceIds), record.note, record.verifiedAt,
     );
+  }
+
+  verificationRecordsForEvidenceIds(evidenceIds: readonly string[]): Array<{
+    verificationType: VerificationType;
+    status: VerificationStatus;
+    analysisEvidenceStatus: AnalysisRecord["evidenceStatus"];
+  }> {
+    if (evidenceIds.length === 0) return [];
+    const selectedEvidence = new Set(evidenceIds);
+    const rows = this.db.prepare(`SELECT vr.verification_type, vr.status,
+      ar.evidence_ids_json, ar.evidence_status
+      FROM verification_records vr
+      JOIN analysis_records ar ON ar.id = vr.analysis_record_id
+      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
+      ORDER BY vr.verified_at, vr.id`).all() as Array<{
+        verification_type: string;
+        status: string;
+        evidence_ids_json: string;
+        evidence_status: string;
+      }>;
+    return rows.flatMap((row) => {
+      const recordEvidence = JSON.parse(row.evidence_ids_json) as string[];
+      if (!recordEvidence.some((id) => selectedEvidence.has(id))) return [];
+      return [{
+        verificationType: row.verification_type as VerificationType,
+        status: row.status as VerificationStatus,
+        analysisEvidenceStatus: row.evidence_status as AnalysisRecord["evidenceStatus"],
+      }];
+    });
+  }
+
+  annotationCountsForScope(revisionIds: readonly string[], evidenceIds: readonly string[]): {
+    sourceRevision: number;
+    analysisRecord: number;
+  } {
+    let sourceRevision = 0;
+    if (revisionIds.length > 0) {
+      const placeholders = revisionIds.map(() => "?").join(",");
+      const row = this.db.prepare(`SELECT COUNT(*) AS count FROM user_annotations
+        WHERE target_type = 'SOURCE_REVISION' AND target_id IN (${placeholders})`)
+        .get(...revisionIds) as { count: number };
+      sourceRevision = row.count;
+    }
+    if (evidenceIds.length === 0) return { sourceRevision, analysisRecord: 0 };
+    const selectedEvidence = new Set(evidenceIds);
+    const rows = this.db.prepare(`SELECT ar.evidence_ids_json
+      FROM user_annotations ua
+      JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
+      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'`)
+      .all() as Array<{ evidence_ids_json: string }>;
+    const analysisRecord = rows.filter((row) =>
+      (JSON.parse(row.evidence_ids_json) as string[]).some((id) => selectedEvidence.has(id))).length;
+    return { sourceRevision, analysisRecord };
   }
 
   insertUserAnnotation(annotation: UserAnnotation): void {

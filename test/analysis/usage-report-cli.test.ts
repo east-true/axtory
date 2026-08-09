@@ -25,7 +25,7 @@ test("report-usage CLI emits a privacy-safe user-facing report", async () => {
     assert.match(result.stdout, /file-change: 2/u);
     assert.match(result.stdout, /Semantics: NOT_COLLECTED/u);
     const saved = JSON.parse(await readFile(output, "utf8")) as { schemaVersion: string };
-    assert.equal(saved.schemaVersion, "axtory.usage-report.v1");
+    assert.equal(saved.schemaVersion, "axtory.usage-report.v2");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
