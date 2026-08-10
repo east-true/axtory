@@ -423,7 +423,8 @@ function telemetryCategory(key: string): "tokens" | "model" | "cost" | "latency"
 
 export async function generateUsageReport(options: {
   dataDirectory: string;
-  jsonOutputPath: string;
+  // Omitted when a caller such as the window comparison needs the analysis but not a JSON export.
+  jsonOutputPath?: string;
   since?: string;
   until?: string;
   sourceTypes?: readonly string[];
@@ -872,12 +873,14 @@ export async function generateUsageReport(options: {
   });
   try {
     database.transaction(() => database.insertAnalysisRecords(records));
-    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, report);
-    database.recordExport({
-      id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
-      policyVersion: OUTPUT_POLICY_VERSION, recordCount: records.length,
-      classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: now().toISOString(),
-    });
+    if (options.jsonOutputPath !== undefined) {
+      const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, report);
+      database.recordExport({
+        id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
+        policyVersion: OUTPUT_POLICY_VERSION, recordCount: records.length,
+        classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: now().toISOString(),
+      });
+    }
     database.finishAnalysisRun(analysisRunId, "COMPLETED", now().toISOString());
     return report;
   } catch (error) {
