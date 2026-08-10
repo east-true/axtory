@@ -47,21 +47,28 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 8) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 8) return;
+    if (version.user_version > 9) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 9) return;
+    if (version.user_version === 8) {
+      this.migrateToVersion9();
+      return;
+    }
     if (version.user_version === 7) {
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 6) {
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 5) {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 4) {
@@ -69,6 +76,7 @@ export class AxtoryDatabase {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 3) {
@@ -77,6 +85,7 @@ export class AxtoryDatabase {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 1) {
@@ -232,6 +241,7 @@ export class AxtoryDatabase {
     this.migrateToVersion6();
     this.migrateToVersion7();
     this.migrateToVersion8();
+    this.migrateToVersion9();
   }
 
   private migrateToVersion4(): void {
@@ -326,6 +336,18 @@ export class AxtoryDatabase {
         ? `ALTER TABLE verification_records
             ADD COLUMN note_classification TEXT NOT NULL DEFAULT 'PERSONAL_DATA';` : ""}
       PRAGMA user_version = 8;
+      COMMIT;
+    `);
+  }
+
+  // Schema 9 records cleared verification notes in the deletion audit. Retention already cleared
+  // them and reported the count to the caller, but the durable row under-reported what ran.
+  private migrateToVersion9(): void {
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${this.needsColumn("deletion_runs", "verification_notes_cleared")
+        ? `ALTER TABLE deletion_runs ADD COLUMN verification_notes_cleared INTEGER NOT NULL DEFAULT 0;` : ""}
+      PRAGMA user_version = 9;
       COMMIT;
     `);
   }
@@ -924,16 +946,16 @@ export class AxtoryDatabase {
     id: string; mode: string; target: unknown; status: "COMPLETED" | "FAILED";
     rawObservationsDeleted: number; normalizedObservationsDeleted: number;
     analysisRunsDeleted: number; blobsDeleted: number; spoolEntriesDeleted: number;
-    annotationsDeleted: number; executedAt: string;
+    annotationsDeleted: number; verificationNotesCleared: number; executedAt: string;
   }): void {
     this.db.prepare(`INSERT INTO deletion_runs(
       id, mode, target_json, status, raw_observations_deleted,
       normalized_observations_deleted, analysis_runs_deleted, blobs_deleted, spool_entries_deleted,
-      annotations_deleted, executed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      annotations_deleted, verification_notes_cleared, executed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.id, input.mode, canonicalJson(input.target), input.status, input.rawObservationsDeleted,
       input.normalizedObservationsDeleted, input.analysisRunsDeleted, input.blobsDeleted,
-      input.spoolEntriesDeleted, input.annotationsDeleted, input.executedAt,
+      input.spoolEntriesDeleted, input.annotationsDeleted, input.verificationNotesCleared, input.executedAt,
     );
   }
 
