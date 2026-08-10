@@ -150,8 +150,11 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 - index가 `$KIMI_CODE_HOME` 밖을 가리키면 거부한다. index는 Vendor 데이터다.
 - prompt·응답·tool payload·경로·Session ID는 Canonical 관찰과 출력에 넣지 않고 content는 hash만
   남긴다. Raw는 `CONVERSATION_CONTENT`로 로컬 Blob Store에만 보관한다.
-- Rule Semantic extractor는 아직 없다. `analyze-rule`은 명시적 오류로 끝나고 Usage Report는
-  `NOT_SUPPORTED`로 표시한다.
+- Rule Semantic extractor는 `ContentPart`의 text 변형만 읽는다. `think`는 모델의 추론이지 Agent가
+  한 진술이 아니고 media part에는 주장이 없으므로 후보에서 제외한다. Document는 normalizer가
+  이미 만든 Message evidence를 가리키며 별도 번호를 만들지 않는다. `ContentPart`가 있는데
+  읽을 수 있는 text 키가 하나도 없으면 형식 변경이므로 실패한다. event stream이 없는 세션도
+  "주장 0건"이 아니라 오류다.
 
 **미검증:** 자격증명이 없어 실제 Session을 만들지 못했다. 계약 test는 공식 문서 shape 기반
 합성 데이터이며 실제 `state.json`·`wire.jsonl` 표본으로는 확인하지 않았다.

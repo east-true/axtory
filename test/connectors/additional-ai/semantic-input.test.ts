@@ -20,6 +20,8 @@ test("OpenCode semantic input maps assistant text to normalized evidence only", 
   };
   const documents = extractAdditionalAiSemanticDocuments(raw, [observation]);
   assert.deepEqual(documents, [{ id: "opencode-assistant-message-0", evidenceId: "evidence", text: "Tests passed." }]);
+  // Aider's Markdown has no documented message schema, so it stays unsupported even though the
+  // provider list has since grown beyond OpenCode.
   assert.throws(() => extractAdditionalAiSemanticDocuments({ provider: "AIDER", view: {} }, []),
-    /supported only for structured OpenCode/u);
+    /supports only providers with a documented message schema/u);
 });
