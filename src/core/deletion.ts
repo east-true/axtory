@@ -51,8 +51,10 @@ async function executeInternalDeletion(
     ? database.revisionIdsForSourceObject(options.target.sourceObjectId!)
     : unique(options.target.revisionIds ?? []);
   const raw = options.rawObservationIds
-    ? database.rawObservationsForRevisionIds(revisionIds)
-      .filter((item) => options.rawObservationIds!.includes(item.id))
+    ? (() => {
+      const allowed = new Set(options.rawObservationIds);
+      return database.rawObservationsForRevisionIds(revisionIds).filter((item) => allowed.has(item.id));
+    })()
     : database.rawObservationsForRevisionIds(revisionIds);
   let normalizedObservationsDeleted = 0;
   let analysisRunsDeleted = 0;
