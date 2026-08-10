@@ -78,8 +78,29 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 - 네 adapter는 공식 문서/소스 응답 shape를 고정한 합성 contract test를 통과했다.
 - Aider는 임시 Markdown 파일에서 실제 child-process CLI → Discovery → Raw/Revision → Fact →
   JSON 경로와 반복 수집을 검증했다. 이 검증은 Aider 실행 파일 자체를 실행한 것이 아니다.
-- 감사 환경에는 `gemini`, `opencode`, `cursor-agent`, `aider` 실행 파일이 없었다. 따라서
-  Gemini/OpenCode/Cursor의 설치된 실제 버전 smoke와 Aider가 생성한 실제 history 표본은
-  수행하지 않았다.
+- 이후 Gemini CLI 0.54.4, OpenCode 1.18.16, Aider 0.86.2를 실제로 설치해 discovery와 명령
+  호환성을 확인했고, Aider가 실제 생성한 history를 수집했다. 자격증명이 없어 대화가 있는
+  Session 목록과 OpenCode export 본문은 여전히 미검증이며 content 계약은 합성 test 근거다.
+  `cursor-agent`는 공식 배포가 원격 install script뿐이라 설치하지 않았다.
 - Vendor가 출력 형식을 바꾸면 조용히 빈 결과로 처리하지 않고 schema/format error로 실패한다.
   합성 테스트는 향후 모든 Vendor 버전이나 사용자의 전체 history를 보증하지 않는다.
+
+## 후보 Source 조사: Kimi Code, GitHub Copilot CLI, Muse Code
+
+조사일: 2026-08-10. 아직 구현 대상이 아니며 Connector 편입 가능성만 판정한다.
+
+판정 기준은 기존과 같다. 공식 문서로 고정된 비파괴 읽기 경로가 있어야 하고, 문서화되지 않은
+Vendor 저장물을 추측해 parsing하지 않는다.
+
+| 후보 | 공식 읽기 경로 | 판정 |
+| --- | --- | --- |
+| Kimi Code | `kimi export <sessionId>`(ZIP, `-y`로 비대화형), 문서화된 `$KIMI_CODE_HOME/sessions/`(기본 `~/.kimi-code/sessions/`)의 `<workDirKey>/<sessionId>/state.json`과 `agents/*/wire.jsonl` | `PROPOSED`. OpenCode 다음으로 근거가 갖춰진 후보다. |
+| GitHub Copilot CLI | 없음. 1.0.78의 하위 명령은 completion/help/init/login/mcp/plugin/plugins/skill/update/version뿐이고 세션 목록·export 명령이나 플래그가 없다. `--continue`와 `--connect`로 세션이 유지됨은 확인되지만 저장 형식은 문서화돼 있지 않다. | `NOT_SUPPORTED`. 문서화되지 않은 저장물을 parsing하지 않는다는 규칙에 걸린다. |
+| Muse Code | 로컬 append-only event log와 `muse replay`가 있으나 개발자 포털 로그인 뒤라 공개 문서가 없다. | `NEEDS_SPIKE`. 공개 계약을 확인하기 전에는 판정하지 않는다. |
+
+세 후보 모두 공식 배포가 원격 install script(`curl … | bash`)다. npm에서 이름이 겹치는
+`kimi-cli`, `kimi-code`, `cursor-agent`는 모두 무관한 서드파티 패키지이므로 설치 대상이 아니다.
+공식 경로 외 설치는 검증을 오염시킨다.
+
+출처: <https://www.kimi.com/code>, <https://www.kimi.com/code/docs/en/kimi-code-cli/guides/sessions.html>,
+<https://github.com/github/copilot-cli>, <https://research.meta.ai/blog/introducing-muse-code-and-muse-spark-1-2>
