@@ -24,6 +24,26 @@ function sourceKind(value: unknown): string {
   return "unknown";
 }
 
+/**
+ * Read the parent a spawned subagent thread declares.
+ *
+ * The top-level `parentThreadId` is null on every observed subagent thread. App Server 0.147.0
+ * instead carries the link inside the source variant, as
+ * `source.subAgent.thread_spawn.parent_thread_id`; a bounded read of 126 real subagent threads had
+ * it populated on all of them and the top-level field populated on none. Only the id is read and it
+ * is hashed by the caller: the same object also carries an agent path and nickname, which stay out
+ * of canonical observations.
+ */
+function spawnedParentThreadId(source: unknown): string | null {
+  if (source === null || typeof source !== "object" || Array.isArray(source)) return null;
+  const subAgent = (source as Record<string, unknown>).subAgent;
+  if (subAgent === null || typeof subAgent !== "object" || Array.isArray(subAgent)) return null;
+  const spawn = (subAgent as Record<string, unknown>).thread_spawn;
+  if (spawn === null || typeof spawn !== "object" || Array.isArray(spawn)) return null;
+  const parent = (spawn as Record<string, unknown>).parent_thread_id;
+  return typeof parent === "string" && parent.length > 0 ? parent : null;
+}
+
 function toolName(item: CodexThreadItem): string | null {
   switch (item.type) {
     case "commandExecution": return "commandExecution";
@@ -87,7 +107,12 @@ export function normalizeCodexThread(
       ephemeral: thread.ephemeral === true,
     },
   });
-  if (thread.forkedFromId) {
+  const parentThreadId = thread.parentThreadId ?? spawnedParentThreadId(thread.source);
+  // App Server spawns a subagent by forking, so a spawned thread reports the same id in both
+  // `forkedFromId` and its spawn parent. Emitting FORKED_FROM as well would label one link as two
+  // different lineage kinds and present an agent spawn as a user fork. A fork that points somewhere
+  // other than the spawn parent is a real fork and is still recorded.
+  if (thread.forkedFromId && thread.forkedFromId !== parentThreadId) {
     add({
       stableKey: "relation:forked-from",
       kind: "RELATION",
@@ -101,7 +126,7 @@ export function normalizeCodexThread(
       },
     });
   }
-  if (thread.parentThreadId) {
+  if (parentThreadId) {
     add({
       stableKey: "relation:subagent-of",
       kind: "RELATION",
@@ -111,7 +136,7 @@ export function normalizeCodexThread(
       payload: {
         relationType: "SUBAGENT_OF",
         childThreadIdentity: sha256(thread.id),
-        parentThreadIdentity: sha256(thread.parentThreadId),
+        parentThreadIdentity: sha256(parentThreadId),
       },
     });
   }

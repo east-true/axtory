@@ -127,8 +127,17 @@ Sources:
   type labels were `userMessage`, `agentMessage`, `fileChange`, `webSearch`, `subAgentActivity`,
   and `contextCompaction`. No content, IDs, paths, cwd, titles, model values, or tool payloads were
   retained in the report.
-- The bounded view contained no active, fork-linked, or parent-linked thread. This is absence in
-  the sample, not evidence that those cases do not occur.
+- A later bounded read covered 189 threads and 1666 full turns. It added no new item type and
+  contained 609 `contextCompaction` items, so compaction is common rather than incidental.
+- 126 of those threads are spawned subagents. Every one declares its parent at
+  `source.subAgent.thread_spawn.parent_thread_id`; none populates the top-level `parentThreadId`.
+  The spike report reads `thread/list`, where `forkedFromId` is null, while the collector reads
+  `thread/read`, where the same spawn parent is repeated in `forkedFromId`. The spike's zero fork
+  count therefore did not mean the collector produced none.
+- The same object carries `depth`, `agent_path`, `agent_nickname`, and `agent_role`. Only the
+  parent id is read, and it is hashed before it reaches a canonical observation.
+- No active thread appeared in the sample. That remains absence in the sample, not evidence that
+  active threads do not occur.
 
 ### Contract status
 
@@ -140,7 +149,8 @@ Sources:
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
 | `thread/read` returned turns | VERIFIED | Installed App Server returned full turns without resume/subscription. |
 | active thread consistency | VERIFIED_BY_TEST/PARTIAL | Active or changed list/detail metadata is partial; controlled live mutation remains pending. |
-| fork/parent relation | VERIFIED_BY_TEST/PARTIAL | Explicit fields normalize to hashed relations; no local sampled link was present. |
+| subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
+| fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
 | internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
 | experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
