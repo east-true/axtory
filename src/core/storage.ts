@@ -592,9 +592,11 @@ export class AxtoryDatabase {
     const targetTable = annotation.targetType === "SOURCE_REVISION" ? "source_revisions" : "analysis_records";
     const target = this.db.prepare(`SELECT id FROM ${targetTable} WHERE id = ?`).get(annotation.targetId);
     if (!target) throw new Error("user annotation target does not exist");
+    // The CLI already rejects zero, and a baseline of no time is not a claim anyone makes, so both
+    // boundaries agree on a positive integer rather than disagreeing about zero.
     if (annotation.baselineMinutes !== null &&
-      (!Number.isInteger(annotation.baselineMinutes) || annotation.baselineMinutes < 0)) {
-      throw new Error("a declared baseline must be a non-negative integer number of minutes");
+      (!Number.isInteger(annotation.baselineMinutes) || annotation.baselineMinutes <= 0)) {
+      throw new Error("a declared baseline must be a positive integer number of minutes");
     }
     this.db.prepare(`INSERT INTO user_annotations(
       id, target_type, target_id, assertion, data_classification, baseline_minutes, created_at
