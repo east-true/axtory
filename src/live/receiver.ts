@@ -1,9 +1,20 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import { BoundedSpool, type LiveChannel } from "./spool.js";
+
+function isAuthorized(header: unknown, token: string): boolean {
+  if (typeof header !== "string") return false;
+  const expected = Buffer.from(`Bearer ${token}`);
+  const actual = Buffer.from(header);
+  if (actual.length !== expected.length) {
+    timingSafeEqual(expected, expected);
+    return false;
+  }
+  return timingSafeEqual(actual, expected);
+}
 
 export interface LiveReceiver {
   endpoint: string;
@@ -68,7 +79,7 @@ export async function startLiveReceiver(options: {
       }
       requestCount += 1;
       if (requestCount > maximumRequestsPerMinute) return send(response, 429, { error: "rate_limit" });
-      if (request.headers.authorization !== `Bearer ${token}`) return send(response, 401, { error: "unauthorized" });
+      if (!isAuthorized(request.headers.authorization, token)) return send(response, 401, { error: "unauthorized" });
       const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       if (request.method === "GET" && path === "/health") return send(response, 200, { status: "ok" });
       const channel = request.method === "POST" ? channelFor(path) : null;
