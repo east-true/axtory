@@ -96,7 +96,7 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 | --- | --- | --- |
 | Kimi Code | 문서화된 `$KIMI_CODE_HOME`(기본 `~/.kimi-code`)의 `session_index.jsonl`, `sessions/<workDirKey>/<sessionId>/state.json`, `agents/main/wire.jsonl` | **구현함.** 실제 설치본 0.34.0으로 명령 존재를 확인했고 문서화된 wire schema로 Message·Tool까지 정규화한다. |
 | GitHub Copilot CLI | 없음. 1.0.78의 하위 명령은 completion/help/init/login/mcp/plugin/plugins/skill/update/version뿐이고 세션 목록·export 명령이나 플래그가 없다. `--continue`와 `--connect`로 세션이 유지됨은 확인되지만 저장 형식은 문서화돼 있지 않다. | `NOT_SUPPORTED`. 문서화되지 않은 저장물을 parsing하지 않는다는 규칙에 걸린다. |
-| Muse Code | 로컬 append-only event log와 `muse replay`가 있으나 개발자 포털 로그인 뒤라 공개 문서가 없다. | `NEEDS_SPIKE`. 공개 계약을 확인하기 전에는 판정하지 않는다. |
+| Muse Code | `muse export`가 세션 하나의 durable log를 `export_schema_version 1` JSON 한 문서로 내보낸다. `--last`/`--out`으로 비대화형 실행이 되고 help가 "reads only local files; no network access"를 명시한다. `muse trace inspect --session-log <jsonl> --format json`도 있다. | `PROPOSED`. 읽기 경로는 확인했으나 export 문서의 필드명이 공개돼 있지 않다. |
 
 세 후보 모두 공식 배포가 원격 install script(`curl … | bash`)다. npm에서 이름이 겹치는
 `kimi-cli`, `kimi-code`, `cursor-agent`는 모두 무관한 서드파티 패키지이므로 설치 대상이 아니다.
@@ -155,3 +155,33 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 
 **미검증:** 자격증명이 없어 실제 Session을 만들지 못했다. 계약 test는 공식 문서 shape 기반
 합성 데이터이며 실제 `state.json`·`wire.jsonl` 표본으로는 확인하지 않았다.
+
+### Muse Code 실제 설치 확인 (0.1.0-R708.1)
+
+첫 조사에서 `NEEDS_SPIKE`로 둔 근거는 "문서가 개발자 포털 로그인 뒤"였다. 이는 절반만 맞았다.
+웹 문서는 여전히 로그인 뒤지만 CLI 자체의 `--help`가 공개된 계약 원본이고, 설치 스크립트도
+`https://dev.meta.ai/install.sh`로 공개돼 있다. 그래서 판정을 `PROPOSED`로 올린다.
+
+설치 스크립트는 `api.meta.ai` 한 도메인에서만 받고 `x-content-sha256` 헤더와 대조해 검증하며
+기본 위치가 `$HOME/.local/bin`이라 권한 상승이 없다. 기본 동작이 shell profile에 PATH를 넣으므로
+검증에는 `MUSE_NO_MODIFY_PATH=1`과 `MUSE_INSTALL_DIR`로 사용자 rc를 바꾸지 않았다. 설치물은
+launcher script이고 최초 실행 시 실제 바이너리를 내려받는 2단계 구조다.
+
+- `muse export [--session <id|path>] [--last] [--out <file>] [--redacted]`가 세션 하나의 durable
+  log를 자체 완결 JSON 한 문서로 내보낸다. `export_schema_version 1`로 스키마가 버전화돼 있다.
+- help가 "Offline: reads only local files; no network access"를 명시한다. AXtory가 요구하는
+  비파괴·오프라인 읽기 보증이 Vendor 문서로 고정된 셈이다.
+- 산출물이 JSON이라 Kimi의 ZIP과 달리 압축 해제 의존성이 필요 없다.
+- 대화형 터미널에서 `--session` 없이 실행하면 picker가 뜨지만, 출력이 pipe이거나 `--out`/`--last`를
+  주면 비대화형으로 동작한다. child-process 수집에는 `--last --out`을 쓴다.
+- `--redacted`는 telemetry redaction 규칙을 적용한 share-safe 변형이다. 기본은 RAW다.
+- 세션이 없으면 exit 1과 `no retained sessions found for this workspace`로 끝난다. 빈 결과를
+  성공으로 위장하지 않는다. 세션은 workspace 단위로 범위가 나뉜다.
+- `muse trace inspect --session-log <jsonl> --format json`이 두 번째 읽기 경로다.
+
+**구현 보류 사유:** export 문서가 담는 항목은 help가 열거하지만(timestamps, messages, tool
+calls/results, approvals, question outcomes, model ids, ses_/trajectory_ ids, fork/subagent
+lineage) 필드명은 공개돼 있지 않다. help가 참조하는 `docs/session-export.md`는 설치물에
+포함되지 않고 웹 문서는 로그인 뒤다. 바이너리에서 문자열을 추출해 필드명을 알아내는 것은
+문서화되지 않은 Vendor 형식의 역공학이므로 하지 않는다. 필드명이 공개되거나 실제 export 표본을
+얻기 전에는 normalizer를 쓰지 않는다.
