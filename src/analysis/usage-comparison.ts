@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
+import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import type { Availability } from "../core/model.js";
-import { writeJsonAtomically } from "../core/output.js";
+import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
+import { AxtoryDatabase } from "../core/storage.js";
 import { generateUsageReport, type UsageReportOutput } from "./usage-report.js";
 
 export const USAGE_COMPARISON_ANALYZER_VERSION = "usage-comparison/1";
@@ -86,6 +89,24 @@ function comparable(window: ComparedWindow): boolean {
   return window.availability === "AVAILABLE" || window.availability === "PARTIAL";
 }
 
+/**
+ * The window labels are load-bearing: every difference is `later - earlier` and is rendered with a
+ * sign against "Earlier"/"Later" headings. A later window that begins before the earlier one would
+ * invert the direction of every reported change, so the ordering the labels claim is enforced here.
+ * A later window nested inside a broader earlier one still begins no sooner and stays allowed.
+ */
+function assertWindowOrder(earlier: ComparisonWindowInput, later: ComparisonWindowInput): void {
+  const start = (value: string | undefined): number => {
+    if (value === undefined) return Number.NEGATIVE_INFINITY;
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) throw new Error("comparison window bounds must be ISO-8601 timestamps");
+    return parsed;
+  };
+  if (start(later.since) < start(earlier.since)) {
+    throw new Error("the later comparison window must not begin before the earlier window");
+  }
+}
+
 export async function compareUsageWindows(options: {
   dataDirectory: string;
   jsonOutputPath?: string;
@@ -98,6 +119,7 @@ export async function compareUsageWindows(options: {
   const now = options.now ?? (() => new Date());
   const randomId = options.randomId ?? randomUUID;
   const sourceTypes = [...new Set(options.sourceTypes ?? [])].sort();
+  assertWindowOrder(options.earlier, options.later);
 
   const windowOptions = (window: ComparisonWindowInput) => ({
     dataDirectory: options.dataDirectory,
@@ -164,7 +186,23 @@ export async function compareUsageWindows(options: {
     ],
   };
 
-  if (options.jsonOutputPath !== undefined) await writeJsonAtomically(options.jsonOutputPath, output);
+  if (options.jsonOutputPath !== undefined) {
+    // Writing the comparison to disk is an export like any other sink, so it carries the same audit
+    // row. The per-window reports run without a JSON path and deliberately record no export.
+    const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
+    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, output);
+    const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+    try {
+      database.recordExport({
+        id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
+        policyVersion: OUTPUT_POLICY_VERSION, recordCount: output.windows.length,
+        classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest,
+        exportedAt: now().toISOString(),
+      });
+    } finally {
+      database.close();
+    }
+  }
   return output;
 }
 
