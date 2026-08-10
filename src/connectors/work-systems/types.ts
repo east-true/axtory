@@ -92,6 +92,11 @@ export function timestamp(value: unknown): string | null {
   return isoTimestamp(value);
 }
 
+/**
+ * Read the Vendor's own stable id. Never substitute a different identifier namespace as a fallback:
+ * the returned value keys the SourceObject, so an artifact that resolved to `id` on one run and to
+ * a project-scoped number or key on another would split into two SourceObjects and be counted twice.
+ */
 export function identifier(value: unknown, label: string): string {
   if ((typeof value !== "string" && typeof value !== "number") || String(value).length === 0 ||
       String(value).length > 256) {

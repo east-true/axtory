@@ -113,7 +113,7 @@ export class GitHubWorkSystemApi implements WorkSystemApi {
       const updatedAt = timestamp(item.updated_at);
       const mergedAt = timestamp(item.merged_at);
       const links = commitLinks([["HEAD", head.sha], ["MERGE", item.merge_commit_sha]]);
-      const externalId = identifier(item.id ?? item.number, "pull request id");
+      const externalId = identifier(item.id, "pull request id");
       const statusCategory = prStatus(item);
       return {
         provider: this.provider, scopeIdentity: this.scopeIdentity, kind: "CHANGE_REQUEST", externalId,

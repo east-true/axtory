@@ -88,7 +88,7 @@ export class GitLabWorkSystemApi implements WorkSystemApi {
   }
 
   private artifact(kind: WorkArtifactKind, item: Record<string, unknown>): WorkArtifact {
-    const externalId = identifier(item.id ?? item.iid, `${kind} id`);
+    const externalId = identifier(item.id, `${kind} id`);
     const createdAt = timestamp(item.created_at);
     const updatedAt = timestamp(item.updated_at);
     if (kind === "CHANGE_REQUEST") {
