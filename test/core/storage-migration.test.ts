@@ -25,7 +25,7 @@ test("schema v1 migrates forward without discarding existing revision rows", asy
     try {
       const version = verifier.prepare("PRAGMA user_version").get() as { user_version: number };
       const revision = verifier.prepare("SELECT id FROM source_revisions").get() as { id: string };
-      assert.equal(version.user_version, 6);
+      assert.equal(version.user_version, 7);
       assert.equal(revision.id, "existing-revision");
     } finally {
       verifier.close();
@@ -74,7 +74,7 @@ test("schema v2 gains trust, policy, and deletion tables without losing analysis
       const row = verifier.prepare(`SELECT evidence_status FROM analysis_records WHERE id = 'record-1'`)
         .get() as { evidence_status: string };
       assert.equal(row.evidence_status, "PRESENT");
-      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 6);
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 7);
     } finally {
       verifier.close();
     }
@@ -100,7 +100,7 @@ test("schema v3 gains completed-collection revision observations", async () => {
     migrated.close();
     const verifier = new DatabaseSync(path, { readOnly: true });
     try {
-      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 6);
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 7);
     } finally {
       verifier.close();
     }
@@ -144,7 +144,7 @@ test("schema v4 snapshots legacy heads before requiring completed collection obs
       const head = verifier.prepare("SELECT source_revision_id FROM legacy_revision_heads").get() as
         { source_revision_id: string };
       assert.equal(head.source_revision_id, "revision-new");
-      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 6);
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 7);
     } finally {
       verifier.close();
     }
@@ -176,13 +176,20 @@ test("schema v5 classifies existing user annotations without discarding their te
     migrated.close();
     const verifier = new DatabaseSync(path, { readOnly: true });
     try {
-      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 6);
+      assert.equal((verifier.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 7);
       const row = verifier.prepare(`SELECT assertion, data_classification FROM user_annotations`).get() as
         { assertion: string; data_classification: string };
       assert.equal(row.assertion, "kept text");
       assert.equal(row.data_classification, "PERSONAL_DATA");
       const columns = verifier.prepare("PRAGMA table_info(deletion_runs)").all() as Array<{ name: string }>;
       assert.ok(columns.some((item) => item.name === "annotations_deleted"));
+      // Schema 7 adds the baseline column and leaves it null for a claim nobody made.
+      const annotationColumns = verifier.prepare("PRAGMA table_info(user_annotations)").all() as
+        Array<{ name: string }>;
+      assert.ok(annotationColumns.some((item) => item.name === "baseline_minutes"));
+      assert.equal((verifier.prepare(
+        `SELECT baseline_minutes FROM user_annotations`,
+      ).get() as { baseline_minutes: number | null }).baseline_minutes, null);
     } finally {
       verifier.close();
     }

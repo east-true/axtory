@@ -255,7 +255,7 @@ test("usage report exposes evidence deletion, OTel channels, and connected verif
       });
       database.insertUserAnnotation({
         id: "annotation-trust", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
-        assertion: "private annotation must not be exported", dataClassification: "PERSONAL_DATA",
+        assertion: "private annotation must not be exported", dataClassification: "PERSONAL_DATA", baselineMinutes: null,
         createdAt: "2026-08-09T00:01:00.000Z",
       });
     } finally {

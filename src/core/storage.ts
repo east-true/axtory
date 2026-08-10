@@ -47,21 +47,28 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 6) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 6) return;
+    if (version.user_version > 7) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 7) return;
+    if (version.user_version === 6) {
+      this.migrateToVersion7();
+      return;
+    }
     if (version.user_version === 5) {
       this.migrateToVersion6();
+      this.migrateToVersion7();
       return;
     }
     if (version.user_version === 4) {
       this.migrateToVersion5();
       this.migrateToVersion6();
+      this.migrateToVersion7();
       return;
     }
     if (version.user_version === 3) {
       this.migrateToVersion4();
       this.migrateToVersion5();
       this.migrateToVersion6();
+      this.migrateToVersion7();
       return;
     }
     if (version.user_version === 1) {
@@ -215,6 +222,7 @@ export class AxtoryDatabase {
     this.migrateToVersion4();
     this.migrateToVersion5();
     this.migrateToVersion6();
+    this.migrateToVersion7();
   }
 
   private migrateToVersion4(): void {
@@ -264,25 +272,38 @@ export class AxtoryDatabase {
   // Schema 6 gives user-authored annotation text a DataClassification so retention can expire it,
   // and records how many annotations a retention run removed. Existing rows predate any explicit
   // choice, so they take the most restrictive default rather than a permissive one.
+  // A partially constructed legacy database may lack a table entirely, so an ALTER is only safe when
+  // the table exists and the column is not already present.
+  private needsColumn(table: string, column: string): boolean {
+    const present = this.db.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    ).get(table);
+    if (!present) return false;
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return !columns.some((item) => item.name === column);
+  }
+
   private migrateToVersion6(): void {
-    // A partially constructed legacy database may lack either table, so each ALTER is conditional
-    // on the table existing and on the column not already being present.
-    const needsColumn = (table: string, column: string): boolean => {
-      const present = this.db.prepare(
-        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
-      ).get(table);
-      if (!present) return false;
-      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-      return !columns.some((item) => item.name === column);
-    };
     this.db.exec(`
       BEGIN IMMEDIATE;
-      ${needsColumn("user_annotations", "data_classification")
+      ${this.needsColumn("user_annotations", "data_classification")
         ? `ALTER TABLE user_annotations
             ADD COLUMN data_classification TEXT NOT NULL DEFAULT 'PERSONAL_DATA';` : ""}
-      ${needsColumn("deletion_runs", "annotations_deleted")
+      ${this.needsColumn("deletion_runs", "annotations_deleted")
         ? `ALTER TABLE deletion_runs ADD COLUMN annotations_deleted INTEGER NOT NULL DEFAULT 0;` : ""}
       PRAGMA user_version = 6;
+      COMMIT;
+    `);
+  }
+
+  // Schema 7 lets an annotation carry a declared baseline in minutes. It stays NULL for every
+  // annotation that makes no such claim, because AXtory must not invent a duration nobody stated.
+  private migrateToVersion7(): void {
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${this.needsColumn("user_annotations", "baseline_minutes")
+        ? `ALTER TABLE user_annotations ADD COLUMN baseline_minutes INTEGER;` : ""}
+      PRAGMA user_version = 7;
       COMMIT;
     `);
   }
@@ -571,11 +592,15 @@ export class AxtoryDatabase {
     const targetTable = annotation.targetType === "SOURCE_REVISION" ? "source_revisions" : "analysis_records";
     const target = this.db.prepare(`SELECT id FROM ${targetTable} WHERE id = ?`).get(annotation.targetId);
     if (!target) throw new Error("user annotation target does not exist");
+    if (annotation.baselineMinutes !== null &&
+      (!Number.isInteger(annotation.baselineMinutes) || annotation.baselineMinutes < 0)) {
+      throw new Error("a declared baseline must be a non-negative integer number of minutes");
+    }
     this.db.prepare(`INSERT INTO user_annotations(
-      id, target_type, target_id, assertion, data_classification, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?)`).run(
+      id, target_type, target_id, assertion, data_classification, baseline_minutes, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
       annotation.id, annotation.targetType, annotation.targetId, annotation.assertion,
-      annotation.dataClassification, annotation.createdAt,
+      annotation.dataClassification, annotation.baselineMinutes, annotation.createdAt,
     );
   }
 
@@ -605,13 +630,44 @@ export class AxtoryDatabase {
       conditions.push("target_id = ?");
       parameters.push(filter.targetId);
     }
-    const rows = this.db.prepare(`SELECT id, target_type, target_id, assertion, data_classification, created_at
+    const rows = this.db.prepare(`SELECT id, target_type, target_id, assertion, data_classification,
+      baseline_minutes, created_at
       FROM user_annotations ${conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`}
-      ORDER BY created_at, id`).all(...parameters) as Array<Record<string, string>>;
+      ORDER BY created_at, id`).all(...parameters) as Array<Record<string, string | number | null>>;
     return rows.map((row) => ({
-      id: row.id!, targetType: row.target_type as UserAnnotation["targetType"],
-      targetId: row.target_id!, assertion: row.assertion!,
-      dataClassification: row.data_classification as DataClassification, createdAt: row.created_at!,
+      id: row.id as string, targetType: row.target_type as UserAnnotation["targetType"],
+      targetId: row.target_id as string, assertion: row.assertion as string,
+      dataClassification: row.data_classification as DataClassification,
+      baselineMinutes: row.baseline_minutes === null ? null : Number(row.baseline_minutes),
+      createdAt: row.created_at as string,
+    }));
+  }
+
+  // Baselines are returned with their classification so the analysis layer can apply the export
+  // policy; storage does not decide what may leave the machine.
+  declaredBaselinesForScope(revisionIds: readonly string[], evidenceIds: readonly string[]): Array<{
+    baselineMinutes: number; dataClassification: DataClassification;
+  }> {
+    const rows: Array<Record<string, string | number>> = [];
+    if (revisionIds.length > 0) {
+      const placeholders = revisionIds.map(() => "?").join(",");
+      rows.push(...this.db.prepare(`SELECT baseline_minutes, data_classification FROM user_annotations
+        WHERE target_type = 'SOURCE_REVISION' AND baseline_minutes IS NOT NULL
+          AND target_id IN (${placeholders})`).all(...revisionIds) as Array<Record<string, string | number>>);
+    }
+    if (evidenceIds.length > 0) {
+      const placeholders = evidenceIds.map(() => "?").join(",");
+      rows.push(...this.db.prepare(`SELECT ua.baseline_minutes, ua.data_classification
+        FROM user_annotations ua
+        JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
+        JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
+        WHERE ua.baseline_minutes IS NOT NULL
+          AND EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))`)
+        .all(...evidenceIds) as Array<Record<string, string | number>>);
+    }
+    return rows.map((row) => ({
+      baselineMinutes: Number(row.baseline_minutes),
+      dataClassification: row.data_classification as DataClassification,
     }));
   }
 

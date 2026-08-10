@@ -5,6 +5,7 @@ import { stableId } from "../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import type { Availability } from "../core/model.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
+import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../core/policy.js";
 import {
   VERIFICATION_STATUSES,
   VERIFICATION_TYPES,
@@ -146,6 +147,13 @@ export interface UsageReportOutput {
     records: number | null;
     sourceRevisionRecords: number;
     analysisRecordRecords: number;
+    declaredBaseline: {
+      availability: Availability;
+      reason: string | null;
+      records: number | null;
+      totalMinutes: number | null;
+      withheldRecords: number;
+    };
   };
   limitations: readonly string[];
 }
@@ -741,6 +749,20 @@ export async function generateUsageReport(options: {
   ])];
   const annotationCounts = database.annotationCountsForScope(selectedRevisionIds, selectedEvidence);
   const annotationTotal = annotationCounts.sourceRevision + annotationCounts.analysisRecord;
+  // A declared baseline is the user's own assertion, so it leaves the machine only when its
+  // classification permits export. A withheld baseline is reported as withheld, never as zero.
+  const declaredBaselines = database.declaredBaselinesForScope(selectedRevisionIds, selectedEvidence);
+  const exportableBaselines = declaredBaselines.filter((item) =>
+    policyAllows(DEFAULT_LOCAL_COLLECTION_POLICY, item.dataClassification, "export"));
+  const withheldBaselines = declaredBaselines.length - exportableBaselines.length;
+  const baselineAvailability: Availability = exportableBaselines.length > 0
+    ? "AVAILABLE"
+    : withheldBaselines > 0 ? "REDACTED" : "NOT_COLLECTED";
+  const baselineReason = exportableBaselines.length > 0
+    ? "Minutes declared by the user; AXtory does not measure elapsed working time to compare them against."
+    : withheldBaselines > 0
+      ? "Declared baselines exist but their DataClassification does not allow export."
+      : "No annotation in the selected report scope declares a baseline.";
 
   const report: UsageReportOutput = {
     schemaVersion: "axtory.usage-report.v2", generatedAt, analysisRunId,
@@ -817,6 +839,15 @@ export async function generateUsageReport(options: {
       records: annotationTotal > 0 ? annotationTotal : null,
       sourceRevisionRecords: annotationCounts.sourceRevision,
       analysisRecordRecords: annotationCounts.analysisRecord,
+      declaredBaseline: {
+        availability: baselineAvailability,
+        reason: baselineReason,
+        records: exportableBaselines.length > 0 ? exportableBaselines.length : null,
+        totalMinutes: exportableBaselines.length > 0
+          ? exportableBaselines.reduce((sum, item) => sum + item.baselineMinutes, 0)
+          : null,
+        withheldRecords: withheldBaselines,
+      },
     },
     limitations: [
       "The report describes latest retained source views, not all historical revisions added together.",
@@ -828,6 +859,8 @@ export async function generateUsageReport(options: {
       "OTel event and metric channels can overlap and are never combined with each other.",
       "Model and telemetry values exist only when the user separately enabled and collected Claude OTel.",
       "For a bounded report, opt-in rules read each selected latest revision and report only assertions backed by in-window messages.",
+      "A declared baseline is the user's own assertion, not a measurement, and AXtory does not record " +
+        "elapsed working time that could be subtracted from it.",
       "This report does not estimate ROI, time saved, causality, quality, or impact.",
     ],
   };
@@ -939,6 +972,14 @@ export function renderUsageReport(report: UsageReportOutput): string {
       `  ${item.verificationType}/${item.status}: ${item.count}`),
     `Annotations: ${report.annotations.availability}` +
       (report.annotations.records === null ? "" : `, ${report.annotations.records} records`),
+    `Declared baseline: ${report.annotations.declaredBaseline.availability}` +
+      (report.annotations.declaredBaseline.totalMinutes === null
+        ? ""
+        : `, ${report.annotations.declaredBaseline.totalMinutes} minutes across ` +
+          `${report.annotations.declaredBaseline.records} records`) +
+      (report.annotations.declaredBaseline.withheldRecords === 0
+        ? ""
+        : `, ${report.annotations.declaredBaseline.withheldRecords} withheld by classification`),
   ];
   return `${lines.map(clean).join("\n").slice(0, 16_384)}\n`;
 }

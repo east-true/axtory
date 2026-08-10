@@ -34,7 +34,7 @@ test("raw-only deletion removes unreferenced blobs and marks dependent evidence 
     const database = new AxtoryDatabase(run.databasePath);
     database.insertUserAnnotation({
       id: "annotation-1", targetType: "ANALYSIS_RECORD", targetId: analysis.id,
-      assertion: "This result was useful.", dataClassification: "PERSONAL_DATA",
+      assertion: "This result was useful.", dataClassification: "PERSONAL_DATA", baselineMinutes: null,
       createdAt: "2026-08-02T00:00:00.000Z",
     });
     database.insertVerificationRecord({

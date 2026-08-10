@@ -119,5 +119,8 @@ export interface UserAnnotation {
   targetId: string;
   assertion: string;
   dataClassification: DataClassification;
+  // The user's own claim about how long the work would have taken without an agent. Null whenever
+  // no such claim was made; AXtory never derives it.
+  baselineMinutes: number | null;
   createdAt: string;
 }
