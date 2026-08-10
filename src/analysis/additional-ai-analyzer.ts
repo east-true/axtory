@@ -12,7 +12,9 @@ export function analyzeAdditionalAiFacts(
   projections: readonly SessionProjection[],
 ): AnalysisRecord[] {
   const records = analyzeFacts(analysisRunId, projections);
-  if (provider === "OPENCODE") return records;
+  // Providers with a documented machine-readable history keep the message and tool counts the
+  // shared fact analyzer produced. The rest cannot support them and say so with a reason.
+  if (provider === "OPENCODE" || provider === "KIMI_CODE") return records;
   const availability = provider === "AIDER" ? "NOT_SUPPORTED" as const : "NOT_COLLECTED" as const;
   const reason = provider === "AIDER"
     ? "Aider's documented Markdown history has no stable machine-readable message or tool schema."

@@ -131,7 +131,11 @@ metrics/logs에서 content/identity를 정규화 결과에 복제하지 않고 t
 
 **검증:** 합성 Hook/OTLP payload, 실제 임시 Git repository, 설정 merge/backup/rollback,
 Spool 중단 복구·idempotency, Blob/WAL/Spool 삭제 범위를 자동 테스트한다. 실제 Claude live
-세션 발화는 사용자 설정을 자동 변경하지 않기 위해 2차 완료 감사에 포함하지 않는다.
+세션 발화는 이후 `claude --settings <격리 파일>`로 검증했다. 사용자 전역 설정은 읽지도 쓰지도
+않았고 digest가 전후 동일했으며, 생성한 설정은 `rollback-live`로 원본과 byte 단위로 복원했다.
+실제 Hook 3건과 OTLP 3건이 도착했고 token·model·추정 cost·latency Fact를 event·metric channel
+별로 얻었다. 실제 payload가 담은 `tool_input`, `tool_response`, `last_assistant_message`, cwd,
+transcript path는 Canonical 관찰에 남지 않았다.
 
 ## Phase 8: Codex
 
@@ -194,8 +198,15 @@ Fact, Console/JSON 경로를 통과한다. limit, 목록/상세 사이 원천 �
 model, identity, tool payload는 출력하지 않는다.
 
 **검증:** 공식 문서/소스 shape 기반 합성 contract test와 Aider의 실제 AXtory child-process
-CLI 수집을 통과했다. 감사 환경에 Vendor CLI가 없어 Gemini/OpenCode/Cursor 실제 설치본과
-Aider가 생성한 실제 history의 smoke는 수행하지 않았다.
+CLI 수집을 통과했다. 이후 Gemini CLI 0.54.4, OpenCode 1.18.16, Aider 0.86.2를 실제 설치해
+검증했다. 세 Vendor 모두 discovery가 실행 파일과 버전을 읽고 capability를 산출하며, AXtory가
+호출하는 명령·플래그(`--list-sessions`, `session list --format json --max-count`, `export`)가
+현재 버전에 존재한다. Aider가 실제로 생성한 `.aider.chat.history.md`를 수집해 Session 1건과
+`UNKNOWN` coverage, `NOT_SUPPORTED` Message/Tool fact를 확인했고 재수집 시 신규 Revision은
+0건이며 홈 경로·프로젝트 경로·파일명이 정규화 결과와 JSON에 남지 않았다. 자격증명이 없는
+Gemini는 exit 41로 실패해 AXtory가 명시적 오류로 종결하며 세션 0건으로 위장하지 않는다.
+Cursor Agent는 공식 배포가 원격 스크립트 설치뿐이고 npm의 동명 패키지는 서드파티라 설치하지
+않았다.
 
 ## Phase 10.5: Usage Analytics
 

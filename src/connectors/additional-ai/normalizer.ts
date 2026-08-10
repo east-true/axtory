@@ -4,9 +4,10 @@ import type { AdditionalAiSessionView } from "./types.js";
 
 export const ADDITIONAL_AI_NORMALIZER_VERSION = "additional-ai-session/1";
 
-function projectionCoverage(view: AdditionalAiSessionView): "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_SOURCE_CHANGED" | "UNKNOWN" {
+function projectionCoverage(view: AdditionalAiSessionView): "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_COMPACTION" | "PARTIAL_SOURCE_CHANGED" | "UNKNOWN" {
   if (view.coverage === "COMPLETE_FOR_RETURNED_VIEW") return "COMPLETE_FOR_RETURNED_VIEW";
   if (view.coverage === "PARTIAL_LIMIT") return "PARTIAL_PAGINATION";
+  if (view.coverage === "PARTIAL_COMPACTION") return "PARTIAL_COMPACTION";
   if (view.coverage === "PARTIAL_SOURCE_CHANGED") return "PARTIAL_SOURCE_CHANGED";
   return "UNKNOWN";
 }

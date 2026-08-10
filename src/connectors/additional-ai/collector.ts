@@ -50,7 +50,8 @@ function capability(discovery: AdditionalAiDiscovery, key: string): string {
 function retainedCoverage(observations: ReturnType<AxtoryDatabase["observationsForRevision"]>): AdditionalAiCoverage {
   const value = observations.find((item) => item.stableKey === "session")?.payload.additionalAiCoverage;
   return value === "COMPLETE_FOR_RETURNED_VIEW" || value === "PARTIAL_LIMIT" ||
-    value === "PARTIAL_SOURCE_CHANGED" || value === "METADATA_ONLY" || value === "UNKNOWN"
+    value === "PARTIAL_SOURCE_CHANGED" || value === "PARTIAL_COMPACTION" ||
+    value === "METADATA_ONLY" || value === "UNKNOWN"
     ? value
     : "UNKNOWN";
 }
@@ -182,6 +183,8 @@ export async function collectAdditionalAiSource(
         ? "PARTIAL_LIMIT"
       : viewCoverages.includes("PARTIAL_SOURCE_CHANGED")
         ? "PARTIAL_SOURCE_CHANGED"
+      : viewCoverages.includes("PARTIAL_COMPACTION")
+        ? "PARTIAL_COMPACTION"
         : viewCoverages.length > 0 && viewCoverages.every((value) => value === "METADATA_ONLY")
           ? "METADATA_ONLY"
           : viewCoverages.includes("UNKNOWN")

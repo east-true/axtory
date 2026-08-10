@@ -41,6 +41,7 @@ import { collectAdditionalAiSource, renderAdditionalAiCollection } from "./conne
 import { CursorSourceApi } from "./connectors/additional-ai/cursor.js";
 import { discoverAdditionalAiSource } from "./connectors/additional-ai/discovery.js";
 import { GeminiCliSourceApi } from "./connectors/additional-ai/gemini.js";
+import { KimiCodeSourceApi } from "./connectors/additional-ai/kimi.js";
 import { OpenCodeSourceApi } from "./connectors/additional-ai/opencode.js";
 import type { AdditionalAiProvider, AdditionalAiSourceApi } from "./connectors/additional-ai/types.js";
 import { generateUsageReport, renderUsageReport } from "./analysis/usage-report.js";
@@ -72,7 +73,7 @@ function option(args: readonly string[], name: string): string | undefined {
 function requestedSourceTypes(args: readonly string[]): string[] {
   return options(args, "--source").map((value) => {
     const sourceType = SOURCE_TYPE_NAMES[value.toLowerCase()];
-    if (!sourceType) throw new Error("--source must be claude, codex, fixture, gemini, opencode, cursor, or aider");
+    if (!sourceType) throw new Error("--source must be claude, codex, fixture, gemini, opencode, cursor, aider, or kimi");
     return sourceType;
   });
 }
@@ -448,9 +449,10 @@ async function main(args: readonly string[]): Promise<void> {
     }
     const providers: Readonly<Record<string, AdditionalAiProvider>> = {
       gemini: "GEMINI_CLI", opencode: "OPENCODE", cursor: "CURSOR", aider: "AIDER",
+      kimi: "KIMI_CODE",
     };
     const provider = providers[providerValue];
-    if (!provider) throw new Error("--provider must be gemini, opencode, cursor, or aider");
+    if (!provider) throw new Error("--provider must be gemini, opencode, cursor, aider, or kimi");
     const resolvedProject = resolve(projectDirectory);
     const historyFile = option(args, "--history-file") ?? join(resolvedProject, ".aider.chat.history.md");
     if (provider !== "AIDER" && option(args, "--history-file")) {
@@ -459,10 +461,19 @@ async function main(args: readonly string[]): Promise<void> {
     const discovery = await discoverAdditionalAiSource(provider, {
       projectDirectory: resolvedProject,
       ...(provider === "AIDER" ? { historyFile: resolve(historyFile) } : {}),
+      ...(provider === "KIMI_CODE" && option(args, "--kimi-home")
+        ? { sessionStore: resolve(option(args, "--kimi-home")!) }
+        : {}),
     });
     let api: AdditionalAiSourceApi;
     if (provider === "AIDER") {
       api = new AiderSourceApi({ projectDirectory: resolvedProject, historyFile: resolve(historyFile) });
+    } else if (provider === "KIMI_CODE") {
+      // Kimi Code is read from its documented session store, so no executable is required.
+      api = new KimiCodeSourceApi({
+        projectDirectory: resolvedProject,
+        ...(option(args, "--kimi-home") ? { home: resolve(option(args, "--kimi-home")!) } : {}),
+      });
     } else {
       const executablePath = availableValue(discovery.sourceProfile.executablePath, `${provider} executable`);
       api = provider === "GEMINI_CLI"

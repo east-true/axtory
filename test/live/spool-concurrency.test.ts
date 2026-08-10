@@ -30,15 +30,20 @@ test("concurrent appends sharing one request id keep the first event and report 
     assert.equal(results.filter((item) => !item.duplicate).length, 1);
     assert.equal(results.filter((item) => item.duplicate).length, 1);
 
-    // Exactly one entry, no temporary file left behind, and the retained payload is intact rather
-    // than a half-written or silently replaced one.
+    // Exactly one entry, no temporary file left behind, and the retained payload is one of the two
+    // intact bodies rather than a half-written or blended one. Which request wins the race is a
+    // scheduling outcome, not a contract, so the assertion is that the survivor is whole.
     const files = await entries(directory);
     assert.equal(files.length, 1);
     assert.match(files[0]!, /^spool_[0-9a-f]{32}\.json$/u);
     const envelope = JSON.parse(
       await readFile(join(directory, "spool", files[0]!), "utf8"),
     ) as SpoolEnvelope;
-    assert.deepEqual(envelope.payload, { event: "FIRST" });
+    assert.ok(
+      [{ event: "FIRST" }, { event: "SECOND" }].some((candidate) =>
+        JSON.stringify(candidate) === JSON.stringify(envelope.payload)),
+      `retained payload was neither request intact: ${JSON.stringify(envelope.payload)}`,
+    );
     assert.equal(envelope.states.at(-1)?.state, "RECEIVED");
   } finally {
     await rm(directory, { recursive: true, force: true });

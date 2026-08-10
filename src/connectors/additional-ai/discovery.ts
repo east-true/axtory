@@ -10,6 +10,7 @@ import type { AdditionalAiProvider } from "./types.js";
 
 const EXECUTABLES: Readonly<Record<AdditionalAiProvider, string>> = {
   GEMINI_CLI: "gemini", OPENCODE: "opencode", CURSOR: "cursor-agent", AIDER: "aider",
+  KIMI_CODE: "kimi",
 };
 
 export interface AdditionalAiDiscovery {
@@ -49,6 +50,7 @@ function environmentType(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): Exe
 export async function discoverAdditionalAiSource(provider: AdditionalAiProvider, options: {
   projectDirectory: string;
   historyFile?: string;
+  sessionStore?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   architecture?: string;
@@ -68,6 +70,18 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
     const match = result.exitCode === 0 ? result.stdout.match(/[0-9]{1,4}(?:\.[0-9A-Za-z-]+){1,4}/u) : null;
     version = match?.[0] ?? null;
   }
+  let sessionStoreAvailable = false;
+  if (provider === "KIMI_CODE") {
+    // Reading is file-based, so enumeration needs the documented session store, not the executable.
+    // The index appears with the first session, so its absence is an empty history.
+    try {
+      sessionStoreAvailable = (await stat(resolve(options.sessionStore ?? join(
+        env.KIMI_CODE_HOME ?? join(env.HOME ?? "", ".kimi-code"),
+      )))).isDirectory();
+    } catch {
+      sessionStoreAvailable = false;
+    }
+  }
   let historyFileAvailable = false;
   if (provider === "AIDER" && options.historyFile) {
     try {
@@ -79,7 +93,9 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
   const sourceProfileId = randomUUID();
   const environmentId = randomUUID();
   const installed = executable !== null;
-  const canEnumerate = provider === "AIDER" ? historyFileAvailable : installed;
+  const canEnumerate = provider === "AIDER"
+    ? historyFileAvailable
+    : provider === "KIMI_CODE" ? sessionStoreAvailable : installed;
   const installationReason = installed
     ? undefined
     : `${EXECUTABLES[provider]} executable was not found on PATH.`;
@@ -87,9 +103,13 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
     ? undefined
     : provider === "AIDER"
       ? "The configured Aider chat history file is unavailable."
-      : `${EXECUTABLES[provider]} executable is required to enumerate sessions.`;
+      : provider === "KIMI_CODE"
+        ? "The documented Kimi Code session store is unavailable."
+        : `${EXECUTABLES[provider]} executable is required to enumerate sessions.`;
   const contentAvailability = provider === "OPENCODE" && installed
     ? "AVAILABLE"
+    : provider === "KIMI_CODE" && sessionStoreAvailable
+      ? "AVAILABLE"
     : provider === "AIDER" && historyFileAvailable
       ? "PARTIAL"
       : "NOT_SUPPORTED";
@@ -117,14 +137,20 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
           ...(installationReason ? { reason: installationReason } : {}), evidence: ["PATH lookup", "--version"] },
         { key: "additional_ai.session_enumeration", availability: canEnumerate ? "AVAILABLE" : "SOURCE_UNAVAILABLE",
           ...(enumerationReason ? { reason: enumerationReason } : {}),
-          evidence: [provider === "AIDER" ? "documented history file" : "official CLI list command"] },
+          evidence: [provider === "AIDER"
+            ? "documented history file"
+            : provider === "KIMI_CODE" ? "documented session store" : "official CLI list command"] },
         { key: "additional_ai.session_content", availability: contentAvailability,
           ...(contentAvailability === "NOT_SUPPORTED"
             ? { reason: "Provider exposes no non-mutating structured history read contract." }
             : contentAvailability === "PARTIAL"
               ? { reason: "Aider exposes a documented Markdown log but no stable message schema." }
               : {}),
-          evidence: [provider === "OPENCODE" ? "opencode export JSON" : provider === "AIDER" ? "chat-history-file" : "official documentation"] },
+          evidence: [provider === "OPENCODE"
+            ? "opencode export JSON"
+            : provider === "AIDER" ? "chat-history-file"
+            : provider === "KIMI_CODE" ? "documented wire.jsonl event stream"
+            : "official documentation"] },
       ],
     },
   };

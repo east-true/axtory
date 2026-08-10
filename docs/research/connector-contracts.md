@@ -54,6 +54,25 @@ Sources:
 - None of the bounded returned messages had a populated `parent_tool_use_id`. This is absence in
   the sampled view, not evidence that subagent lineage is unsupported.
 
+### Controlled live emission
+
+A bounded session ran with `claude --settings <isolated file>` against a temporary project, so the
+receiver was reached with real credentials while the user's global settings were never read or
+written; their digest was identical before and after. The generated settings were then restored
+byte-for-byte with `rollback-live`.
+
+- Six requests arrived: three Hook posts and three OTLP bodies (two logs, one metrics).
+- Real Hook payloads carry more than the documented minimum. `PostToolUse` includes `tool_input`,
+  `tool_response`, `tool_use_id`, `duration_ms`, `cwd`, and `transcript_path`; `Stop` includes
+  `last_assistant_message`; all three include `session_id`, `prompt_id`, and `permission_mode`.
+  Undocumented keys also appeared: `effort`, `background_tasks`, `session_crons`,
+  `stop_hook_active`, and `reason`.
+- The normalizer allowlist held against that real payload. Canonical observations contained no cwd,
+  transcript path, tool input or response, assistant message, or read file content; session and
+  tool-use identifiers were hashed.
+- Normalization produced token, model, estimated cost, and latency facts on both the event and the
+  metric channel, each reported separately rather than combined.
+
 ### Gaps
 
 | Question | Classification | Handling |
@@ -91,8 +110,8 @@ session becomes a fixture.
 | Git worktree | PARTIAL_CAPABILITY | Official option is forwarded with `includeWorktrees: true`; controlled session-bearing worktree remains pending. |
 | Subagent lineage | PARTIAL_CAPABILITY | SDK types document parent fields, but no sampled parent link exists; no Core relation is emitted. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
-| HTTP Hook receiver | VERIFIED_BY_TEST/PARTIAL | Loopback auth, bounds, Spool, settings backup/rollback pass synthetic tests; controlled live Claude emission remains pending. |
-| OTLP `http/json` metrics/logs | VERIFIED_BY_TEST/PARTIAL | Synthetic official-shape payloads produce content-free facts; gRPC/protobuf, traces, and controlled live emission are not claimed. |
+| HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |
+| OTLP `http/json` metrics/logs | VERIFIED | The same session delivered real logs and metrics that normalized to token, model, estimated cost, and latency facts across both channels. gRPC/protobuf and traces remain unsupported. |
 
 `VERIFIED_BY_TEST` means a synthetic unit/contract test validated AXtory behavior, not that the
 installed Vendor implementation was exercised for that scenario.
@@ -127,8 +146,17 @@ Sources:
   type labels were `userMessage`, `agentMessage`, `fileChange`, `webSearch`, `subAgentActivity`,
   and `contextCompaction`. No content, IDs, paths, cwd, titles, model values, or tool payloads were
   retained in the report.
-- The bounded view contained no active, fork-linked, or parent-linked thread. This is absence in
-  the sample, not evidence that those cases do not occur.
+- A later bounded read covered 189 threads and 1666 full turns. It added no new item type and
+  contained 609 `contextCompaction` items, so compaction is common rather than incidental.
+- 126 of those threads are spawned subagents. Every one declares its parent at
+  `source.subAgent.thread_spawn.parent_thread_id`; none populates the top-level `parentThreadId`.
+  The spike report reads `thread/list`, where `forkedFromId` is null, while the collector reads
+  `thread/read`, where the same spawn parent is repeated in `forkedFromId`. The spike's zero fork
+  count therefore did not mean the collector produced none.
+- The same object carries `depth`, `agent_path`, `agent_nickname`, and `agent_role`. Only the
+  parent id is read, and it is hashed before it reaches a canonical observation.
+- No active thread appeared in the sample. That remains absence in the sample, not evidence that
+  active threads do not occur.
 
 ### Contract status
 
@@ -140,7 +168,8 @@ Sources:
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
 | `thread/read` returned turns | VERIFIED | Installed App Server returned full turns without resume/subscription. |
 | active thread consistency | VERIFIED_BY_TEST/PARTIAL | Active or changed list/detail metadata is partial; controlled live mutation remains pending. |
-| fork/parent relation | VERIFIED_BY_TEST/PARTIAL | Explicit fields normalize to hashed relations; no local sampled link was present. |
+| subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
+| fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
 | internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
 | experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
