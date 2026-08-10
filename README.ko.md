@@ -122,6 +122,19 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
 필요합니다. 이 작업은 SQLite secure deletion과 WAL checkpoint를 적용하고, 참조되지 않는
 Blob을 제거하며, 관련 Evidence 상태와 일치하는 pending live Spool 항목도 처리합니다.
 
+리포트는 Annotation과 Verification의 개수만 내보내므로, `annotate`와 `verify --note`로 쓴
+텍스트는 Console 전용 명령으로 따로 되읽습니다.
+
+```sh
+node dist/src/cli.js list-annotations --data-dir .local/axtory-claude
+node dist/src/cli.js list-annotations --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_...
+```
+
+stdout으로만 출력하며 파일을 쓰지 않고 Export Run도 남기지 않습니다. 사용자가 작성한
+텍스트에는 아직 DataClassification이 없어 Retention 규칙으로 만료되지 않습니다. 제거하려면
+대상 자체를 삭제해야 합니다.
+
 ## 추가 AI Source
 
 Snapshot Collector는 Gemini CLI, OpenCode, Cursor Agent, Aider를 지원합니다. 실행 파일을

@@ -213,6 +213,31 @@ async function main(args: readonly string[]): Promise<void> {
     process.stdout.write("AXtory user annotation recorded. It does not overwrite source or analysis facts.\n");
     return;
   }
+  if (command === "list-annotations") {
+    const dataDirectory = option(args, "--data-dir");
+    if (!dataDirectory) throw new Error("list-annotations requires --data-dir");
+    const targetType = option(args, "--target-type");
+    if (targetType !== undefined && targetType !== "SOURCE_REVISION" && targetType !== "ANALYSIS_RECORD") {
+      throw new Error("--target-type must be SOURCE_REVISION or ANALYSIS_RECORD");
+    }
+    const targetId = option(args, "--target-id");
+    const analysisRecordId = option(args, "--analysis-record-id");
+    const database = await openDataDatabase(dataDirectory);
+    try {
+      process.stdout.write(`${JSON.stringify({
+        annotations: database.userAnnotations({
+          ...(targetType ? { targetType } : {}), ...(targetId ? { targetId } : {}),
+        }),
+        verificationNotes: database.verificationNotes({
+          ...(analysisRecordId ? { analysisRecordId } : {}),
+        }),
+      }, null, 2)}\n`);
+    } finally {
+      database.close();
+    }
+    process.stderr.write("AXtory printed user-authored text to stdout only; it was not written to an export.\n");
+    return;
+  }
   if (command === "verify") {
     const dataDirectory = option(args, "--data-dir");
     const analysisRecordId = option(args, "--analysis-record-id");

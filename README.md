@@ -123,6 +123,18 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
 operations apply SQLite secure deletion and WAL checkpointing, remove unreferenced blobs, update
 dependent Evidence state, and cover matching pending live Spool entries.
 
+Reports export annotation and verification counts only, so the text you write with `annotate` and
+`verify --note` is read back through a separate console-only command:
+
+```sh
+node dist/src/cli.js list-annotations --data-dir .local/axtory-claude
+node dist/src/cli.js list-annotations --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_...
+```
+
+It prints to stdout, writes no file, and records no export run. User-authored text currently
+carries no DataClassification, so retention rules do not expire it; delete its target to remove it.
+
 ## Additional AI sources
 
 The snapshot collector supports Gemini CLI, OpenCode, Cursor Agent, and Aider without bundling
