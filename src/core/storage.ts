@@ -491,27 +491,22 @@ export class AxtoryDatabase {
     analysisEvidenceStatus: AnalysisRecord["evidenceStatus"];
   }> {
     if (evidenceIds.length === 0) return [];
-    const selectedEvidence = new Set(evidenceIds);
-    const rows = this.db.prepare(`SELECT vr.verification_type, vr.status,
-      ar.evidence_ids_json, ar.evidence_status
+    const placeholders = evidenceIds.map(() => "?").join(",");
+    const rows = this.db.prepare(`SELECT vr.verification_type, vr.status, ar.evidence_status
       FROM verification_records vr
       JOIN analysis_records ar ON ar.id = vr.analysis_record_id
       JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
-      ORDER BY vr.verified_at, vr.id`).all() as Array<{
+      WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))
+      ORDER BY vr.verified_at, vr.id`).all(...evidenceIds) as Array<{
         verification_type: string;
         status: string;
-        evidence_ids_json: string;
         evidence_status: string;
       }>;
-    return rows.flatMap((row) => {
-      const recordEvidence = JSON.parse(row.evidence_ids_json) as string[];
-      if (!recordEvidence.some((id) => selectedEvidence.has(id))) return [];
-      return [{
-        verificationType: row.verification_type as VerificationType,
-        status: row.status as VerificationStatus,
-        analysisEvidenceStatus: row.evidence_status as AnalysisRecord["evidenceStatus"],
-      }];
-    });
+    return rows.map((row) => ({
+      verificationType: row.verification_type as VerificationType,
+      status: row.status as VerificationStatus,
+      analysisEvidenceStatus: row.evidence_status as AnalysisRecord["evidenceStatus"],
+    }));
   }
 
   annotationCountsForScope(revisionIds: readonly string[], evidenceIds: readonly string[]): {
@@ -527,15 +522,14 @@ export class AxtoryDatabase {
       sourceRevision = row.count;
     }
     if (evidenceIds.length === 0) return { sourceRevision, analysisRecord: 0 };
-    const selectedEvidence = new Set(evidenceIds);
-    const rows = this.db.prepare(`SELECT ar.evidence_ids_json
+    const placeholders = evidenceIds.map(() => "?").join(",");
+    const row = this.db.prepare(`SELECT COUNT(*) AS count
       FROM user_annotations ua
       JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
-      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'`)
-      .all() as Array<{ evidence_ids_json: string }>;
-    const analysisRecord = rows.filter((row) =>
-      (JSON.parse(row.evidence_ids_json) as string[]).some((id) => selectedEvidence.has(id))).length;
-    return { sourceRevision, analysisRecord };
+      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
+      WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))`)
+      .get(...evidenceIds) as { count: number };
+    return { sourceRevision, analysisRecord: row.count };
   }
 
   insertUserAnnotation(annotation: UserAnnotation): void {
@@ -626,27 +620,25 @@ export class AxtoryDatabase {
 
   markEvidenceRemovedForRevisionIds(revisionIds: readonly string[]): number {
     if (revisionIds.length === 0) return 0;
-    const revisions = new Set(revisionIds);
-    const runIds = (this.db.prepare(`SELECT id, input_revision_ids_json FROM analysis_runs`).all() as
-      Array<{ id: string; input_revision_ids_json: string }>).filter((row) =>
-        (JSON.parse(row.input_revision_ids_json) as string[]).some((id) => revisions.has(id)))
-      .map((row) => row.id);
+    const placeholders = revisionIds.map(() => "?").join(",");
+    const runIds = (this.db.prepare(`SELECT id FROM analysis_runs
+      WHERE EXISTS (SELECT 1 FROM json_each(analysis_runs.input_revision_ids_json) WHERE value IN (${placeholders}))`)
+      .all(...revisionIds) as Array<{ id: string }>).map((row) => row.id);
     if (runIds.length === 0) return 0;
-    const placeholders = runIds.map(() => "?").join(",");
+    const runPlaceholders = runIds.map(() => "?").join(",");
     return Number(this.db.prepare(`UPDATE analysis_records SET evidence_status = 'EVIDENCE_REMOVED'
       WHERE evidence_status = 'PRESENT' AND evidence_ids_json != '[]'
-        AND analysis_run_id IN (${placeholders})`).run(...runIds).changes);
+        AND analysis_run_id IN (${runPlaceholders})`).run(...runIds).changes);
   }
 
   deleteDerivedForRevisionIds(revisionIds: readonly string[]): {
     normalizedObservations: number; analysisRuns: number;
   } {
     if (revisionIds.length === 0) return { normalizedObservations: 0, analysisRuns: 0 };
-    const revisions = new Set(revisionIds);
-    const runs = (this.db.prepare(`SELECT id, input_revision_ids_json FROM analysis_runs`).all() as
-      Array<{ id: string; input_revision_ids_json: string }>).filter((row) =>
-        (JSON.parse(row.input_revision_ids_json) as string[]).some((id) => revisions.has(id)));
     const placeholders = revisionIds.map(() => "?").join(",");
+    const runs = this.db.prepare(`SELECT id FROM analysis_runs
+      WHERE EXISTS (SELECT 1 FROM json_each(analysis_runs.input_revision_ids_json) WHERE value IN (${placeholders}))`)
+      .all(...revisionIds) as Array<{ id: string }>;
     const normalizedObservations = Number(this.db.prepare(
       `DELETE FROM normalized_observations WHERE source_revision_id IN (${placeholders})`,
     ).run(...revisionIds).changes);
