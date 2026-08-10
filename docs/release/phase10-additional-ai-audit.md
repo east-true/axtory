@@ -42,8 +42,12 @@ Raw Markdown과 `UNKNOWN` 구조 coverage를 보존한다.
 
 ## 명시적 제한
 
-- 감사 환경에 네 Vendor CLI가 설치되어 있지 않아 Gemini/OpenCode/Cursor의 실제 CLI smoke와
-  Aider가 실제 생성한 파일 smoke는 수행하지 않았다. Aider는 AXtory child CLI 경로만 검증했다.
+- Gemini CLI 0.54.4, OpenCode 1.18.16, Aider 0.86.2는 실제 설치본으로 discovery·명령 호환성을
+  검증했고 Aider는 실제 생성 history까지 수집했다. Cursor Agent는 설치하지 않았다: 공식 배포가
+  원격 스크립트 실행뿐이고 npm의 `cursor-agent`는 이름만 같은 서드파티 패키지다.
+- 세 Vendor 모두 자격증명이 없어 실제 대화가 있는 Session 목록과 OpenCode export 본문은
+  검증하지 못했다. 빈 목록과 인증 실패 경로만 확인했으므로 content 계약은 여전히 합성
+  contract test 근거다.
 - Gemini/Cursor는 공식 non-mutating structured history export가 없어 Message/Tool fact가
   `NOT_COLLECTED`다. metadata count를 대화 분석으로 해석할 수 없다.
 - Aider Markdown은 문서화된 저장물이지만 안정된 Message schema가 아니므로 Message/Tool
