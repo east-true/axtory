@@ -21,17 +21,17 @@ test("retention expires classified user annotations and leaves other classificat
     try {
       database.insertUserAnnotation({
         id: "annotation-expired", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
-        assertion: "old personal note", dataClassification: "PERSONAL_DATA",
+        assertion: "old personal note", dataClassification: "PERSONAL_DATA", baselineMinutes: null,
         createdAt: "2026-07-01T00:00:00.000Z",
       });
       database.insertUserAnnotation({
         id: "annotation-recent", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
-        assertion: "recent personal note", dataClassification: "PERSONAL_DATA",
+        assertion: "recent personal note", dataClassification: "PERSONAL_DATA", baselineMinutes: null,
         createdAt: "2026-08-08T00:00:00.000Z",
       });
       database.insertUserAnnotation({
         id: "annotation-other-class", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
-        assertion: "old note under an unexpired classification", dataClassification: "LOCAL_METADATA",
+        assertion: "old note under an unexpired classification", dataClassification: "LOCAL_METADATA", baselineMinutes: null,
         createdAt: "2026-07-01T00:00:00.000Z",
       });
     } finally {

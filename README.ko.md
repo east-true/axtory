@@ -327,9 +327,20 @@ AI 기여 백분율, ROI, 시간 절감 추정치가 빠진 이유는 하나로 
 
 밖에서 세운 모델을 근거에 가깝게 유지하는 두 가지 습관이 있습니다.
 
-- 기준선을 나중에 복원하지 말고 작업이 생생할 때 기록하세요. `annotate`는 해당 Revision에
-  주장을 저장하고 `list-annotations`가 그것을 되읽습니다. 이는 사용자의 주장으로 남으며
-  AXtory가 계산 결과에 섞지 않습니다.
+- 기준선을 나중에 복원하지 말고 작업이 생생할 때 기록하세요. `annotate --baseline-minutes`는
+  Agent 없이 들였을 시간을 산문이 아니라 숫자로 저장하며, 리포트가 그 선언들을 합산합니다.
+
+```sh
+node dist/src/cli.js annotate --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_... \
+  --assertion "이 세션의 수동 기준선" --baseline-minutes 240 \
+  --classification LOCAL_METADATA
+```
+
+  기준선은 DataClassification이 Export를 허용할 때만 밖으로 나갑니다. 따라서 기본값인
+  `PERSONAL_DATA`는 로컬에 머물고 리포트는 `REDACTED`와 보류된 레코드 수를 표시합니다. 합계는
+  사용자의 주장일 뿐입니다. AXtory는 실제 소요 시간을 기록하지 않으므로 기준선에서 실제 작업
+  시간을 뺄 수 없으며, 이 수치를 절약된 시간으로 제시하지 않습니다.
 - 한 기간을 추측과 비교하지 말고 실제로 관측한 기간끼리 비교하세요. `compare-usage`가 두 창을
   측정해 나란히 출력합니다. 대비는 실재하지만, 그것을 Agent 덕분으로 돌리는 것은 도구가 아니라
   사용자의 추론입니다.

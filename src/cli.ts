@@ -223,11 +223,16 @@ async function main(args: readonly string[]): Promise<void> {
     if (!DATA_CLASSIFICATIONS.includes(classification as DataClassification)) {
       throw new Error(`--classification must be one of ${DATA_CLASSIFICATIONS.join(", ")}`);
     }
+    const baselineValue = option(args, "--baseline-minutes");
+    const baselineMinutes = baselineValue === undefined
+      ? null
+      : positiveInteger(baselineValue, "--baseline-minutes");
     const database = await openDataDatabase(dataDirectory);
     try {
       database.insertUserAnnotation({
         id: `annotation_${randomUUID()}`, targetType, targetId, assertion,
-        dataClassification: classification as DataClassification, createdAt: new Date().toISOString(),
+        dataClassification: classification as DataClassification, baselineMinutes,
+        createdAt: new Date().toISOString(),
       });
     } finally {
       database.close();

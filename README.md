@@ -324,9 +324,21 @@ semantic assertions, marks missing data with Availability rather than zero, and 
 
 Two habits keep that outside model closer to evidence:
 
-- Record a baseline while the work is fresh instead of reconstructing it afterwards. `annotate`
-  stores the claim against the revision it belongs to, and `list-annotations` reads it back. It
-  stays your assertion; AXtory never folds it into a computed result.
+- Record a baseline while the work is fresh instead of reconstructing it afterwards. `annotate
+  --baseline-minutes` stores the duration you would have spent without an agent as a number rather
+  than as prose, and the report totals those declarations:
+
+```sh
+node dist/src/cli.js annotate --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_... \
+  --assertion "manual baseline for this session" --baseline-minutes 240 \
+  --classification LOCAL_METADATA
+```
+
+  A baseline leaves the machine only when its DataClassification permits export, so the default
+  `PERSONAL_DATA` keeps it local and the report says `REDACTED` with the number of withheld records.
+  The total is your assertion and nothing more: AXtory does not record elapsed working time, so it
+  cannot subtract actual effort from a baseline, and it never presents the figure as time saved.
 - Compare periods you actually observed instead of measuring one against a guess. `compare-usage`
   measures two windows and prints them side by side. The contrast is real, but attributing it to the
   agent remains your inference rather than the tool's.

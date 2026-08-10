@@ -22,11 +22,12 @@ test("user-authored annotations and verification notes remain readable after the
       database.insertUserAnnotation({
         id: "annotation-revision", targetType: "SOURCE_REVISION", targetId: walking.output.sourceRevisionId,
         assertion: "manual baseline: about four hours without an agent",
-        dataClassification: "PERSONAL_DATA", createdAt: "2026-08-09T00:01:00.000Z",
+        dataClassification: "PERSONAL_DATA", baselineMinutes: 240,
+        createdAt: "2026-08-09T00:01:00.000Z",
       });
       database.insertUserAnnotation({
         id: "annotation-record", targetType: "ANALYSIS_RECORD", targetId: fact.analysisRecordId,
-        assertion: "this count excludes the session I abandoned", dataClassification: "LOCAL_METADATA",
+        assertion: "this count excludes the session I abandoned", dataClassification: "LOCAL_METADATA", baselineMinutes: null,
         createdAt: "2026-08-09T00:02:00.000Z",
       });
       database.insertVerificationRecord({
