@@ -360,17 +360,24 @@ Contract Test로 검증한다.
 - loopback Hook/OTLP `http/json` Receiver, bounded Spool, 설정 backup/rollback
 - content-free OTel token/model/추정 cost/latency 정규화·분석
 - 격리 snapshot 기반 Codex App Server thread 수집과 Fact/Semantic 경로
+- 실제 App Server state에서 확인한 Codex subagent lineage와 spawn/fork 구분
+- 통제된 실제 Claude Hook/OTel live session 수신·정규화 검증
 - Claude/Codex 공통 최소 Connector 계약 후보 문서
 - GitHub/GitLab/Jira/Linear 업무 시스템 Connector와 explicit Git relation
 - Gemini CLI/OpenCode/Cursor/Aider capability별 Source Connector
+- 문서화된 저장소를 직접 읽는 Kimi Code Connector와 Rule Semantic 경로
 - 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
   Analytics Console/JSON 리포트
 
 ### 미구현 또는 추가 Spike 필요
 
-- resume, fork, compaction, real active session, worktree, subagent controlled contract
+- Claude resume, fork, compaction, worktree, subagent controlled contract
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
-- 통제된 실제 Claude Hook/OTel live session 검증
-- 통제된 실제 Codex active/fork/subagent 사례와 추가 버전 호환성
+- 통제된 실제 Codex active thread와 fork 사례, 추가 버전 호환성
+- Muse Code Connector: 읽기 경로는 확인했으나 export 필드명이 미공개
+- 자격증명이 있는 실제 세션에서의 Gemini/OpenCode/Kimi content 검증
 - Public Connector SPI 안정화·게시 결정
+
+Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
+`NOT_SUPPORTED`로 보고한다.

@@ -370,7 +370,7 @@ function supportsRuleSemantics(input: SessionInput): boolean {
   if (input.sourceType === "CLAUDE_CODE" || input.sourceType === "CODEX" || input.sourceType === "FIXTURE") {
     return true;
   }
-  return input.sourceType === "ADDITIONAL_AI_OPENCODE";
+  return input.sourceType === "ADDITIONAL_AI_OPENCODE" || input.sourceType === "ADDITIONAL_AI_KIMI_CODE";
 }
 
 function totalsAvailability(

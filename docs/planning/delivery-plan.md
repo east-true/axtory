@@ -188,7 +188,7 @@ Local Git 재수집 연결을 통과했다. 인증이 필요한 GitLab/Jira/Line
 Revision/Evidence pipeline에 연결하되 Provider별 capability 차이를 보존한다.
 
 **현재 결과:** 완료했다. OpenCode의 공식 JSON list/export는 Message·Tool occurrence까지
-정규화한다. Gemini CLI와 Cursor Agent는 문서화된 Session list만 읽어 metadata-only로
+정규화한다. Gemini CLI는 문서화된 Session list만 읽어 metadata-only로
 표시하고 preview를 폐기한다. Aider는 사용자가 명시한 chat-history Markdown을 Raw local
 evidence로 보관하지만 안정된 Message schema를 추측하지 않는다.
 
@@ -205,8 +205,11 @@ CLI 수집을 통과했다. 이후 Gemini CLI 0.54.4, OpenCode 1.18.16, Aider 0.
 `UNKNOWN` coverage, `NOT_SUPPORTED` Message/Tool fact를 확인했고 재수집 시 신규 Revision은
 0건이며 홈 경로·프로젝트 경로·파일명이 정규화 결과와 JSON에 남지 않았다. 자격증명이 없는
 Gemini는 exit 41로 실패해 AXtory가 명시적 오류로 종결하며 세션 0건으로 위장하지 않는다.
-Cursor Agent는 공식 배포가 원격 스크립트 설치뿐이고 npm의 동명 패키지는 서드파티라 설치하지
-않았다.
+Cursor Agent 2026.08.04-aaa8809도 설치해 확인한 결과 비파괴 Session 목록 명령이 없었다.
+`cursor-agent ls`는 이름과 달리 대화형 resume picker다. Discovery는 설치 여부와 무관하게
+`session_enumeration`을 `NOT_SUPPORTED`로 보고하고 adapter는 CLI를 실행하지 않는다.
+Kimi Code 0.34.0은 문서화된 저장소를 직접 읽는 Connector로 구현해 Message·Tool과 Rule Semantic
+경로까지 연결했다.
 
 ## Phase 10.5: Usage Analytics
 

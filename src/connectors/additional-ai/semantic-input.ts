@@ -1,5 +1,6 @@
 import type { SemanticDocument } from "../../analysis/semantic-analyzer.js";
 import type { NormalizedObservation } from "../../core/records.js";
+import { extractKimiSemanticDocuments } from "./kimi-semantic-input.js";
 import { object } from "./types.js";
 
 export function extractAdditionalAiSemanticDocuments(
@@ -7,8 +8,11 @@ export function extractAdditionalAiSemanticDocuments(
   observations: readonly NormalizedObservation[],
 ): SemanticDocument[] {
   const envelope = object(rawPayload, "additional AI raw view");
+  if (envelope.provider === "KIMI_CODE") {
+    return extractKimiSemanticDocuments(object(envelope.view, "Kimi Code raw view"), observations);
+  }
   if (envelope.provider !== "OPENCODE") {
-    throw new Error("semantic analysis is supported only for structured OpenCode exports");
+    throw new Error("semantic analysis supports only providers with a documented message schema");
   }
   const view = object(envelope.view, "OpenCode raw view");
   if (!Array.isArray(view.messages)) throw new Error("OpenCode raw view messages must be an array");
