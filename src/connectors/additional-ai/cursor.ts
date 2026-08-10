@@ -17,26 +17,22 @@ export class CursorSourceApi implements AdditionalAiSourceApi {
     this.runner = options.runner ?? new LocalAdditionalAiCommandRunner();
   }
 
-  async listSessions(options: { limit: number }) {
-    const result = await this.runner.run(this.options.executablePath, ["ls"], {
-      cwd: this.options.projectDirectory, timeoutMs: 20_000,
-      env: { NO_COLOR: "1", TERM: "dumb" },
-    });
-    if (result.exitCode !== 0) throw new Error("Cursor session listing failed");
-    const ids = [...new Set([...result.stdout.matchAll(
-      /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/gu,
-    )].map((match) => match[0]))];
-    if (result.stdout.trim() && ids.length === 0 && !/no (?:sessions|chats)/iu.test(result.stdout)) {
-      throw new Error("Cursor session list format is unsupported");
-    }
-    const items = ids.slice(0, options.limit).map((externalId): AdditionalAiSessionSummary => ({
-      provider: this.provider, scopeIdentity: this.scopeIdentity, externalId,
-      createdAt: null, sourceUpdatedAt: null,
-    }));
-    return {
-      items,
-      coverage: ids.length > options.limit ? "PARTIAL_LIMIT" as const : "METADATA_ONLY" as const,
-    };
+  /**
+   * Cursor Agent exposes no non-mutating session listing.
+   *
+   * `cursor-agent ls` reads as a listing command but the shipped CLI documents it as "Resume a chat
+   * session" and implements it as an interactive picker: it takes no options, renders a TUI, and
+   * blocks on stdin until the caller's timeout fires. `--print` and `--output-format json` apply
+   * only to running a prompt, which would start an agent rather than observe one.
+   *
+   * Spawning it anyway would burn the timeout on every collection and report "command timed out",
+   * blaming a slow command for a capability the Vendor does not offer. Verified against
+   * cursor-agent 2026.08.04-aaa8809.
+   */
+  async listSessions(_options: { limit: number }): Promise<never> {
+    throw new Error(
+      "Cursor Agent exposes no non-interactive session listing; `cursor-agent ls` is an interactive resume picker",
+    );
   }
 
   async readSession(summary: AdditionalAiSessionSummary) {

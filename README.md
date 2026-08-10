@@ -174,7 +174,7 @@ pass `--kimi-home` to override `$KIMI_CODE_HOME`. Capabilities differ by the off
 | --- | --- | --- |
 | OpenCode | JSON session list and export | Available for the returned export |
 | Gemini CLI | Session list | `NOT_COLLECTED`; metadata only |
-| Cursor Agent | Session list | `NOT_COLLECTED`; metadata only |
+| Cursor Agent | No non-interactive listing | `NOT_SUPPORTED`; enumeration unavailable |
 | Aider | Explicit chat-history Markdown file | `NOT_SUPPORTED`; raw log only |
 | Kimi Code | Documented session store and JSON-RPC `wire.jsonl` | Available for the documented events |
 

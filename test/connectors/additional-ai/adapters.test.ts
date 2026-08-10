@@ -10,7 +10,7 @@ import { CursorSourceApi } from "../../../src/connectors/additional-ai/cursor.js
 import { GeminiCliSourceApi } from "../../../src/connectors/additional-ai/gemini.js";
 import { OpenCodeSourceApi } from "../../../src/connectors/additional-ai/opencode.js";
 
-test("Gemini and Cursor session lists retain IDs but discard preview content", async () => {
+test("Gemini session lists retain IDs but discard preview content", async () => {
   const secret = "PRIVATE-LIST-PREVIEW";
   const runner: AdditionalAiCommandRunner = {
     async run(_command, args) {
@@ -25,17 +25,40 @@ test("Gemini and Cursor session lists retain IDs but discard preview content", a
     },
   };
   const gemini = new GeminiCliSourceApi({ executablePath: "gemini", projectDirectory: "/project", runner });
-  const cursor = new CursorSourceApi({ executablePath: "cursor-agent", projectDirectory: "/project", runner });
   const geminiList = await gemini.listSessions({ limit: 1 });
-  const cursorList = await cursor.listSessions({ limit: 1 });
   assert.equal(geminiList.coverage, "PARTIAL_LIMIT");
-  assert.equal(cursorList.coverage, "PARTIAL_LIMIT");
-  const views = [
-    await gemini.readSession(geminiList.items[0]!),
-    await cursor.readSession(cursorList.items[0]!),
-  ];
-  assert.equal(JSON.stringify([geminiList, cursorList, views]).includes(secret), false);
-  assert.equal(views.every((view) => view.coverage === "METADATA_ONLY" && view.messages.length === 0), true);
+  const view = await gemini.readSession(geminiList.items[0]!);
+  assert.equal(JSON.stringify([geminiList, view]).includes(secret), false);
+  assert.equal(view.coverage, "METADATA_ONLY");
+  assert.equal(view.messages.length, 0);
+});
+
+test("Cursor Agent enumeration fails explicitly instead of driving an interactive picker", async () => {
+  const runner: AdditionalAiCommandRunner = {
+    async run() {
+      throw new Error("the adapter must not spawn the CLI to enumerate sessions");
+    },
+  };
+  const cursor = new CursorSourceApi({ executablePath: "cursor-agent", projectDirectory: "/project", runner });
+  // `cursor-agent ls` is documented as "Resume a chat session" and blocks on stdin, so spawning it
+  // would spend the timeout on every collection and then blame a slow command.
+  await assert.rejects(() => cursor.listSessions({ limit: 1 }), /no non-interactive session listing/u);
+});
+
+test("a Cursor summary obtained elsewhere still reads as metadata only", async () => {
+  const cursor = new CursorSourceApi({ executablePath: "cursor-agent", projectDirectory: "/project" });
+  const view = await cursor.readSession({
+    provider: "CURSOR", scopeIdentity: cursor.scopeIdentity,
+    externalId: "12345678-abcd-1234-abcd-123456789abc", createdAt: null, sourceUpdatedAt: null,
+  });
+  assert.equal(view.coverage, "METADATA_ONLY");
+  assert.deepEqual(view.messages, []);
+  // The summary keeps the Vendor id because the collector needs it to key the SourceObject; the
+  // raw view that reaches the blob store carries only its hash.
+  assert.equal(JSON.stringify(view.rawPayload).includes("12345678-abcd-1234-abcd-123456789abc"), false);
+  assert.match(
+    String((view.rawPayload as { sessionIdentity: string }).sessionIdentity), /^[0-9a-f]{64}$/u,
+  );
 });
 
 test("OpenCode uses pure JSON list/export commands and preserves source-change coverage", async () => {

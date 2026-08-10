@@ -93,9 +93,12 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
   const sourceProfileId = randomUUID();
   const environmentId = randomUUID();
   const installed = executable !== null;
+  // Cursor Agent ships no non-interactive listing: `cursor-agent ls` is an interactive resume
+  // picker, so installation does not imply AXtory can enumerate its sessions.
   const canEnumerate = provider === "AIDER"
     ? historyFileAvailable
-    : provider === "KIMI_CODE" ? sessionStoreAvailable : installed;
+    : provider === "KIMI_CODE" ? sessionStoreAvailable
+    : provider === "CURSOR" ? false : installed;
   const installationReason = installed
     ? undefined
     : `${EXECUTABLES[provider]} executable was not found on PATH.`;
@@ -105,7 +108,9 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
       ? "The configured Aider chat history file is unavailable."
       : provider === "KIMI_CODE"
         ? "The documented Kimi Code session store is unavailable."
-        : `${EXECUTABLES[provider]} executable is required to enumerate sessions.`;
+        : provider === "CURSOR"
+          ? "Cursor Agent exposes no non-interactive session listing; `cursor-agent ls` resumes a session interactively."
+          : `${EXECUTABLES[provider]} executable is required to enumerate sessions.`;
   const contentAvailability = provider === "OPENCODE" && installed
     ? "AVAILABLE"
     : provider === "KIMI_CODE" && sessionStoreAvailable
@@ -135,7 +140,8 @@ export async function discoverAdditionalAiSource(provider: AdditionalAiProvider,
       capabilities: [
         { key: "additional_ai.installation", availability: installed ? "AVAILABLE" : "SOURCE_UNAVAILABLE",
           ...(installationReason ? { reason: installationReason } : {}), evidence: ["PATH lookup", "--version"] },
-        { key: "additional_ai.session_enumeration", availability: canEnumerate ? "AVAILABLE" : "SOURCE_UNAVAILABLE",
+        { key: "additional_ai.session_enumeration",
+          availability: canEnumerate ? "AVAILABLE" : provider === "CURSOR" ? "NOT_SUPPORTED" : "SOURCE_UNAVAILABLE",
           ...(enumerationReason ? { reason: enumerationReason } : {}),
           evidence: [provider === "AIDER"
             ? "documented history file"

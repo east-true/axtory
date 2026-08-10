@@ -81,7 +81,7 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 - 이후 Gemini CLI 0.54.4, OpenCode 1.18.16, Aider 0.86.2를 실제로 설치해 discovery와 명령
   호환성을 확인했고, Aider가 실제 생성한 history를 수집했다. 자격증명이 없어 대화가 있는
   Session 목록과 OpenCode export 본문은 여전히 미검증이며 content 계약은 합성 test 근거다.
-  `cursor-agent`는 공식 배포가 원격 install script뿐이라 설치하지 않았다.
+  Cursor Agent 2026.08.04-aaa8809도 공식 install script로 설치해 검증했다.
 - Vendor가 출력 형식을 바꾸면 조용히 빈 결과로 처리하지 않고 schema/format error로 실패한다.
   합성 테스트는 향후 모든 Vendor 버전이나 사용자의 전체 history를 보증하지 않는다.
 
@@ -188,3 +188,24 @@ lineage) 필드명은 공개돼 있지 않다. help가 참조하는 `docs/sessio
 포함되지 않고 웹 문서는 로그인 뒤다. 바이너리에서 문자열을 추출해 필드명을 알아내는 것은
 문서화되지 않은 Vendor 형식의 역공학이므로 하지 않는다. 필드명이 공개되거나 실제 export 표본을
 얻기 전에는 normalizer를 쓰지 않는다.
+
+### Cursor Agent 실제 설치 확인 (2026.08.04-aaa8809)
+
+앞선 조사에서 "공식 배포가 원격 install script뿐이라 설치하지 않았다"고 적었으나, 이후 Kimi와
+Muse를 같은 방식으로 설치했으므로 일관되지 않은 판단이었다. `cursor.com/install`을 같은 절차로
+감사해 설치했다. 스크립트는 `downloads.cursor.com` 한 도메인만 사용하고 shell rc를 직접 고치지
+않고 안내만 출력한다. 다만 Kimi·Muse와 달리 다운로드 체크섬 검증이 없다.
+
+**결과: Cursor Agent에는 비파괴 Session 목록 명령이 없다.**
+
+- `cursor-agent ls`는 이름과 달리 목록이 아니다. CLI 자체 help가 "Resume a chat session"이라
+  설명하고 옵션이 `--help`뿐이며, 실행하면 Ink TUI를 띄우고 stdin을 기다린다. 비대화형
+  환경에서는 raw mode 오류를 낸 뒤 호출자의 timeout까지 정지한다.
+- `--print`와 `--output-format json`은 프롬프트 실행 전용이라 Session을 관찰하는 것이 아니라
+  Agent를 새로 실행한다. AXtory의 관찰자 경계에 맞지 않는다.
+- 따라서 Discovery는 설치 여부와 무관하게 `session_enumeration`을 `NOT_SUPPORTED`로 보고하고,
+  adapter는 CLI를 spawn하지 않고 즉시 실패한다. 이전 구현은 20초 timeout을 소모한 뒤
+  "command timed out"으로 끝나 Vendor가 제공하지 않는 기능을 느린 명령 탓으로 돌렸다.
+
+Gemini CLI와 같은 metadata-only 취급이 Cursor에는 적용되지 않는다. Gemini는 `--list-sessions`가
+실제로 존재하지만 Cursor에는 대응물이 없다.
