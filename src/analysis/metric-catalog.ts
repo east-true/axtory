@@ -1,9 +1,9 @@
 export interface MetricDefinition {
   key: string;
   description: string;
-  unit: "count";
-  derivation: "CALCULATED";
-  aggregation: "SUM";
+  unit: string;
+  derivation: "OBSERVED" | "CALCULATED";
+  aggregation: "SUM" | "LATEST";
   requiredSource: string;
   formulaVersion: string;
   limitations: readonly string[];
@@ -40,4 +40,176 @@ export const METRIC_CATALOG = {
     formulaVersion: "1",
     limitations: ["Repeated content identities remain separate usage occurrences."],
   },
+  "agent.assertion.count": {
+    key: "agent.assertion.count",
+    description: "Number of assistant claims identified as assertions",
+    unit: "count",
+    derivation: "CALCULATED",
+    aggregation: "SUM",
+    requiredSource: "versioned assertion classifier",
+    formulaVersion: "1",
+    limitations: ["Free-form assistant content is not treated as a verified assertion."],
+  },
+  "usage.input.tokens": {
+    key: "usage.input.tokens",
+    description: "Source-agent input token usage",
+    unit: "tokens",
+    derivation: "OBSERVED",
+    aggregation: "SUM",
+    requiredSource: "official usage telemetry",
+    formulaVersion: "1",
+    limitations: ["Claude Local History is not treated as authoritative usage telemetry."],
+  },
+  "usage.output.tokens": {
+    key: "usage.output.tokens",
+    description: "Source-agent output token usage",
+    unit: "tokens",
+    derivation: "OBSERVED",
+    aggregation: "SUM",
+    requiredSource: "official usage telemetry",
+    formulaVersion: "1",
+    limitations: ["Claude Local History is not treated as authoritative usage telemetry."],
+  },
+} as const satisfies Record<string, MetricDefinition>;
+
+export const OTEL_METRIC_CATALOG = {
+  "telemetry.event.usage.input": {
+    key: "telemetry.event.usage.input", description: "Input tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Event and metric channels can overlap and are not combined automatically."],
+  },
+  "telemetry.event.usage.output": {
+    key: "telemetry.event.usage.output", description: "Output tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Event and metric channels can overlap and are not combined automatically."],
+  },
+  "telemetry.event.usage.cache_read": {
+    key: "telemetry.event.usage.cache_read", description: "Cache-read tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.usage.cache_creation": {
+    key: "telemetry.event.usage.cache_creation", description: "Cache-creation tokens reported by an API request event",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.cost.estimated": {
+    key: "telemetry.event.cost.estimated", description: "Vendor-estimated API request cost",
+    unit: "USD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.event.cost.estimated_micros": {
+    key: "telemetry.event.cost.estimated_micros", description: "Vendor-estimated API request cost in micro-USD",
+    unit: "microUSD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.event.latency.duration": {
+    key: "telemetry.event.latency.duration", description: "API request wall-clock duration",
+    unit: "ms", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel event",
+    formulaVersion: "1", limitations: ["Summed duration is not elapsed session time."],
+  },
+  "telemetry.event.latency.time_to_first_token": {
+    key: "telemetry.event.latency.time_to_first_token", description: "API request time to first token",
+    unit: "ms", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel event",
+    formulaVersion: "1", limitations: [],
+  },
+  "telemetry.event.model.request": {
+    key: "telemetry.event.model.request", description: "Model label attached to one API request event",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel api_request event",
+    formulaVersion: "1", limitations: ["Model strings are untrusted allowlisted labels."],
+  },
+  "telemetry.metric.claude_code.token.usage": {
+    key: "telemetry.metric.claude_code.token.usage", description: "Claude Code token usage metric point",
+    unit: "tokens", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["Keep token type attributes separate."],
+  },
+  "telemetry.metric.claude_code.cost.usage": {
+    key: "telemetry.metric.claude_code.cost.usage", description: "Claude Code estimated cost metric point",
+    unit: "USD", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This is an estimate and not authoritative billing data."],
+  },
+  "telemetry.metric.claude_code.session.count": {
+    key: "telemetry.metric.claude_code.session.count", description: "Claude Code session count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["A session is not a completed unit of work."],
+  },
+  "telemetry.metric.claude_code.lines_of_code.count": {
+    key: "telemetry.metric.claude_code.lines_of_code.count", description: "Claude Code lines-of-code metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This is a Vendor-reported occurrence metric, not impact attribution."],
+  },
+  "telemetry.metric.claude_code.commit.count": {
+    key: "telemetry.metric.claude_code.commit.count", description: "Claude Code commit count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This does not establish causal attribution."],
+  },
+  "telemetry.metric.claude_code.pull_request.count": {
+    key: "telemetry.metric.claude_code.pull_request.count", description: "Claude Code pull request count metric point",
+    unit: "count", derivation: "OBSERVED", aggregation: "SUM", requiredSource: "Claude OTel metric",
+    formulaVersion: "1", limitations: ["This does not establish causal attribution."],
+  },
+} as const satisfies Record<string, MetricDefinition>;
+
+const workMetric = (key: string, description: string): MetricDefinition => ({
+  key, description, unit: "count", derivation: "CALCULATED", aggregation: "SUM",
+  requiredSource: "Work-system official API returned view", formulaVersion: "1",
+  limitations: ["Counts describe returned artifacts and do not establish completion, quality, or AI attribution."],
+});
+
+export const WORK_METRIC_CATALOG = {
+  "work.change_request.count": workMetric("work.change_request.count", "Change requests in the returned view"),
+  "work.change_request.merged.count": workMetric("work.change_request.merged.count", "Merged change requests"),
+  "work.ci_run.count": workMetric("work.ci_run.count", "CI runs in the returned view"),
+  "work.ci_run.succeeded.count": workMetric("work.ci_run.succeeded.count", "Successful CI runs"),
+  "work.ci_run.failed.count": workMetric("work.ci_run.failed.count", "Failed CI runs"),
+  "work.deployment.count": workMetric("work.deployment.count", "Deployments in the returned view"),
+  "work.deployment.succeeded.count": workMetric("work.deployment.succeeded.count", "Successful deployments"),
+  "work.deployment.failed.count": workMetric("work.deployment.failed.count", "Failed deployments"),
+  "work.item.count": workMetric("work.item.count", "Work items in the returned view"),
+  "work.item.completed.count": workMetric("work.item.completed.count", "Completed work items"),
+} as const satisfies Record<string, MetricDefinition>;
+
+const usageMetric = (
+  key: string,
+  description: string,
+  unit: string,
+  limitations: readonly string[],
+): MetricDefinition => ({
+  key, description, unit, derivation: "CALCULATED", aggregation: "LATEST",
+  requiredSource: "Latest retained normalized session revisions", formulaVersion: "1", limitations,
+});
+
+export const USAGE_METRIC_CATALOG = {
+  "usage.report.session.count": usageMetric(
+    "usage.report.session.count", "Sessions represented by latest revisions in the selected scope", "count",
+    ["Sessions are usage containers, not completed work."],
+  ),
+  "usage.report.message.count": usageMetric(
+    "usage.report.message.count", "Message occurrences in latest selected session views", "count",
+    ["Partial and compacted views can omit messages."],
+  ),
+  "usage.report.tool.invocation.count": usageMetric(
+    "usage.report.tool.invocation.count", "Tool-use occurrences in latest selected session views", "count",
+    ["Tool occurrences do not establish productivity or successful outcomes."],
+  ),
+  "usage.report.active_day.count": usageMetric(
+    "usage.report.active_day.count", "UTC calendar days with source-timestamped selected activity", "day",
+    ["Undated observations are absent and UTC days may differ from the user's local calendar."],
+  ),
+  "usage.report.session.with_tools.percentage": usageMetric(
+    "usage.report.session.with_tools.percentage", "Percentage of selected sessions containing a tool occurrence", "percent",
+    ["Partial session views can undercount tool usage."],
+  ),
+  "usage.report.assistant_per_user_message.ratio": usageMetric(
+    "usage.report.assistant_per_user_message.ratio", "Assistant message occurrences divided by user message occurrences", "ratio",
+    ["Message boundaries are Vendor-defined and the ratio is not conversational quality."],
+  ),
+  "usage.report.tool_per_assistant_message.ratio": usageMetric(
+    "usage.report.tool_per_assistant_message.ratio", "Tool occurrences divided by assistant message occurrences", "ratio",
+    ["The ratio is a usage pattern, not efficiency or autonomy."],
+  ),
+  "usage.report.semantic.assertion.count": usageMetric(
+    "usage.report.semantic.assertion.count", "Opt-in rule-matched unverified assistant assertions", "count",
+    ["This counts INFERRED assertion records and does not verify the assertions."],
+  ),
 } as const satisfies Record<string, MetricDefinition>;

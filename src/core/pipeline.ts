@@ -13,6 +13,7 @@ import { ContentAddressedBlobStore } from "./blob-store.js";
 import { stableId } from "./canonical-json.js";
 import { ensureAxtoryDataDirectory } from "./data-directory.js";
 import { applyOutputPolicy, OUTPUT_POLICY_VERSION, type SkeletonOutput, writeJsonAtomically } from "./output.js";
+import { DEFAULT_LOCAL_COLLECTION_POLICY } from "./policy.js";
 import { AxtoryDatabase } from "./storage.js";
 
 export interface WalkingSkeletonOptions {
@@ -37,6 +38,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
   const database = new AxtoryDatabase(databasePath);
   const collectionRunId = `collection_${randomId()}`;
   database.reconcileInterruptedRuns(timestamp());
+  database.saveCollectionPolicy(DEFAULT_LOCAL_COLLECTION_POLICY, timestamp());
   database.startCollectionRun(collectionRunId, "FIXTURE", timestamp());
   try {
     const fixtureStat = await stat(options.fixturePath);
@@ -70,6 +72,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
         sourceModifiedAt: fixture.sourceModifiedAt ?? null,
       });
       database.insertObservations(normalizeClaudeHistoryFixture(fixture, revisionId));
+      database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
     });
     const observations = database.observationsForRevision(revisionId);
     const sessionProjection = projectSession(observations);

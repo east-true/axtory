@@ -2,7 +2,7 @@ import { mkdir, open, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { canonicalJson, sha256 } from "./canonical-json.js";
-import type { AnalysisRecord } from "./records.js";
+import type { AnalysisRecord, Derivation } from "./records.js";
 
 export const OUTPUT_POLICY_VERSION = "local-facts/1";
 
@@ -16,9 +16,11 @@ export interface SkeletonOutput {
     key: string;
     value: unknown;
     unit: string | null;
-    derivation: "CALCULATED";
+    derivation: Derivation;
     availability: string;
+    reason: string | null;
     evidenceCount: number;
+    evidenceStatus: AnalysisRecord["evidenceStatus"];
   }[];
 }
 
@@ -29,14 +31,16 @@ export function applyOutputPolicy(
   records: readonly AnalysisRecord[],
 ): SkeletonOutput {
   const metrics = records
-    .filter((item) => item.recordType === "METRIC" && item.derivation === "CALCULATED")
+    .filter((item) => item.recordType === "METRIC")
     .map((item) => ({
       key: item.key,
       value: item.value,
       unit: item.unit,
-      derivation: item.derivation as "CALCULATED",
+      derivation: item.derivation,
       availability: item.availability,
+      reason: item.reason,
       evidenceCount: item.evidenceIds.length,
+      evidenceStatus: item.evidenceStatus,
     }));
   return {
     schemaVersion: "axtory.walking-skeleton-output.v1",
@@ -52,7 +56,9 @@ export function renderConsole(output: SkeletonOutput): string {
   const clean = (value: string) => value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u009B]/gu, "");
   const lines = ["AXtory fixture analysis", `Coverage: ${output.coverage}`];
   for (const metric of output.metrics) {
-    lines.push(`${clean(metric.key)}: ${String(metric.value)} ${metric.unit ?? ""} [${metric.derivation}]`);
+    lines.push(metric.availability === "AVAILABLE"
+      ? `${clean(metric.key)}: ${String(metric.value)} ${metric.unit ?? ""} [${metric.derivation}]`
+      : `${clean(metric.key)}: unavailable [${metric.availability}] Reason: ${clean(metric.reason ?? "unknown")}`);
   }
   return `${lines.join("\n").slice(0, 16_384)}\n`;
 }

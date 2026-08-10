@@ -65,8 +65,13 @@ follow-up work, not completed functionality.
 - Fact analytics: counts, observed dates, cwd distribution when policy allows, tool occurrences,
   assertions, provenance, and availability.
 
-## Deferred boundaries
+## Later phases
 
-Semantic analysis, Git, Hooks, OTel, AnalysisUnit grouping, Codex, impact estimates, dashboards,
-and public connector SPI remain outside the technical MVP. Optional live mode is introduced only
-with Hook/OTel and uses a bounded local spool.
+Semantic analysis, Git, Hooks, OTel, Codex, and GitHub/GitLab/Jira/Linear work-system connectors
+were implemented in later phases. Gemini CLI, OpenCode, Cursor, and Aider sources were implemented
+in Phase 10 with capability-specific coverage. Phase 10.5 added latest-Revision usage analytics with
+time/source scopes, session distributions, privacy-safe tool categories, Raw-evidence state,
+same-database OTel facts, connected verification/annotation summaries, and opt-in semantic
+integration. Cross-directory federation is not part of this local-DB report contract. AnalysisUnit
+grouping, impact estimates, dashboards, and a published connector SPI remain deferred. Optional live
+mode is introduced only with Hook/OTel and uses a bounded local spool.

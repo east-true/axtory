@@ -26,13 +26,18 @@ test("synthetic fixture crosses the full pipeline and repeated collection is ide
     assert.equal(first.output.revisionCreated, true);
     assert.equal(second.output.revisionCreated, false);
     assert.deepEqual(
-      second.output.metrics.map((item) => [item.key, item.value, item.derivation]),
+      second.output.metrics.filter((item) => item.availability === "AVAILABLE")
+        .map((item) => [item.key, item.value, item.derivation]),
       [
         ["session.count", 1, "CALCULATED"],
         ["message.count", 3, "CALCULATED"],
         ["tool.invocation.count", 2, "CALCULATED"],
       ],
     );
+    const tokens = second.output.metrics.find((item) => item.key === "usage.input.tokens");
+    assert.equal(tokens?.value, null);
+    assert.equal(tokens?.availability, "NOT_COLLECTED");
+    assert.match(tokens?.reason ?? "", /not used as authoritative token telemetry/u);
 
     const storedOutput = JSON.parse(await readFile(jsonOutputPath, "utf8")) as Record<string, unknown>;
     assert.equal(storedOutput.schemaVersion, "axtory.walking-skeleton-output.v1");

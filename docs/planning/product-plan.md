@@ -37,7 +37,8 @@ AXtory는 이 질문에 무조건 답을 생성하지 않는다. 알 수 없는 
 3. **사용 방식 유지:** Agent 실행 흐름에 AXtory를 강제로 끼워 넣지 않는다.
 4. **로컬 소유:** 계정이나 중앙 서버 없이 수집·조회·내보내기·삭제가 가능해야 한다.
 5. **Vendor 독립성:** Vendor 원문과 Canonical 모델을 분리한다.
-6. **점진적 신뢰:** Claude에서 검증한 후보가 Codex에서도 확인된 경우에만 공개 SPI를 검토한다.
+6. **점진적 신뢰:** 여러 Source 구현에서 공통 계약을 검증하되 격리·호환성·공급망 조건이
+   갖춰진 경우에만 공개 SPI를 검토한다.
 
 ## 4. 주요 사용자
 
@@ -103,21 +104,37 @@ Capability 검사
 
 - Claude 공식 API의 민감정보 없는 구조적 Contract Spike
 - 합성 `normal-session` Walking Skeleton
-- SQLite schema v2, Blob Store, Revision, SessionProjection, Fact Analyzer
+- SQLite schema v5, Blob Store, Revision, completed CollectionRun의 observed Revision head,
+  SessionProjection, Fact Analyzer
 - 반복 수집 중복 방지 및 중단 실행 reconciliation 테스트
 - 공식 Claude History의 제한된 실제 수집과 동일 view 증분 재수집 검증
 - 기본 로컬 CollectionPolicy와 marker-guarded `PURGE_ALL`
+- VerificationRecord와 원 분석을 덮어쓰지 않는 UserAnnotation
+- Blob reference, 분석 Evidence 상태, WAL, pending Spool을 포함한 선택 삭제와 Retention
+- opt-in Rule Semantic Analysis와 strict Local/Remote structured-result adapter
+- 별도 Local Git Artifact Source와 비인과적 temporal correlation
+- opt-in Claude HTTP Hook/OTLP `http/json` Receiver, bounded Spool, 설정 backup/rollback
+- OTel token/model/추정 cost/latency Fact
+- 공식 Codex App Server 기반 thread 수집, 격리 state snapshot, Fact/Semantic 경로
+- GitHub/GitLab PR·CI·Deployment와 Jira/Linear Work Item의 content-free 증분 수집
+- 업무 시스템의 명시적 commit identity와 Local Git commit의 관측 관계
+- Gemini CLI/OpenCode/Cursor/Aider의 capability별 증분 수집과 명시적 coverage
+- 최신 Revision 기반 기간·Source·Session·Tool·Evidence·Telemetry·Verification Usage
+  Analytics Console/JSON 리포트
+- 명시적 content 동의가 있을 때만 Usage Report에 통합되는 Rule Semantic 범주
 
-현재 완료 상태는 resume·compaction·worktree·subagent 의미 관계까지 검증했다는 뜻이 아니다.
+현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
+active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
 
-## 7. MVP에서 제외하는 것
+## 7. 초기 MVP 이후에도 제외하는 것
 
 - 자동 AnalysisUnit 그룹핑과 AI 기여도 백분율
 - 목표 달성 점수, AX 종합점수, ROI 및 시간 절감 추정
 - Cloud Backend, 팀 계정, RBAC, Microservices, Message Broker
 - Plugin Marketplace 및 임의 Repository Plugin 실행
-- Git/Jira/Grafana 연동
-- Hook·OTel 자동 설정
+- Grafana 연동과 Jira의 content/comment/changelog 수집
+- Hook·OTel 자동 설정 또는 외부 bind
+- bundled Local/Remote 의미 분석 모델 Provider
 - Claude 내부 JSONL 직접 파싱
 - 모든 Agent 동시 지원
 
@@ -152,8 +169,9 @@ Capability 검사
 - 사용자의 세션·코드·분석 데이터에 AXtory가 소유권을 주장하지 않는다.
 - 사용자는 조회, Export, 삭제, Retention 설정을 할 수 있어야 한다.
 - Raw 불변성은 분석 파이프라인이 원본을 임의 수정하지 않는다는 뜻이며 사용자 삭제를 막지 않는다.
-- 현재는 전체 AXtory 데이터 디렉터리 `PURGE_ALL`만 지원한다. 선택 삭제와 Retention을
-  지원한다고 문서나 UI에서 주장하지 않는다.
+- 전체 `PURGE_ALL`과 `DELETE_RAW_ONLY`, `DELETE_RAW_AND_DERIVED`,
+  `DELETE_SOURCE_SESSION`, 분류별 Retention을 지원한다. 삭제는 Evidence 상태, Blob 참조,
+  SQLite WAL과 pending Spool을 함께 처리한다.
 
 ## 10. 제품 성공 기준
 
@@ -174,4 +192,6 @@ Capability 검사
 장점은 인정하지만 상시 Receiver가 Core 필수가 아니며 첫 Connector의 공식 TypeScript
 SDK를 직접 사용하는 단순성이 더 중요하다. 측정된 병목 없이 언어를 분리하지 않는다.
 
-Claude와 Codex의 공통성이 실제 구현으로 확인되기 전에는 Connector SPI를 공개하지 않는다.
+Claude, Codex, 업무 시스템, 추가 AI Source 구현에서 공통 최소 계약을 검토했지만 Public
+SPI로 공개하지 않았다. 세 번째 이상의 Source는 Core 경계의 재사용 가능성을 보여줬지만,
+프로세스 격리·권한·호환성·공급망 정책 없이 외부 안정성 약속을 만들지 않는다.

@@ -34,8 +34,9 @@ The contract spike and Core walking skeleton use TypeScript on Node.js 24.
 
 - Claude's official TypeScript Agent SDK currently exposes the richest history contract,
   including subagent parent references.
-- Codex's official App Server is language-neutral JSON-RPC and exposes read-only thread list and
-  read operations.
+- Codex's official App Server is language-neutral JSON-RPC and exposes thread list and read
+  operations. Those methods are non-mutating, but App Server runtime initialization itself writes
+  state; AXtory therefore starts it only against a temporary SQLite snapshot.
 - Node's built-in SQLite keeps the offline Core free of required application dependencies.
 - A single process is sufficient for the snapshot MVP and can later host an opt-in local
   receiver without introducing a service architecture.

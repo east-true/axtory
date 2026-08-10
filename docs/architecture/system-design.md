@@ -2,7 +2,7 @@
 
 상태: `ACCEPTED` for Foundation / `PROPOSED` for 미구현 영역
 
-기준일: 2026-08-09
+기준일: 2026-08-10
 
 ## 1. 설계 목표
 
@@ -41,9 +41,10 @@ SQLite에는 CollectionRun을 Source 접근 전에 기록한다.
 
 ### 3.2 Optional Local Receiver
 
-Hook·OTel Phase에서만 추가한다. Unix Domain Socket 또는 Windows Named Pipe를 우선하고,
-불가능하면 Loopback과 임의 인증 토큰을 사용한다. Receiver는 body 크기·rate·schema를
-검증하고 분석 없이 bounded Spool에 기록한다.
+2차 구현에서 opt-in으로 추가했다. Claude HTTP Hook과 OTLP HTTP exporter가 URL endpoint를
+요구하므로 IPv4 loopback과 실행 시 생성한 Bearer token을 사용한다. 외부 interface에는
+bind하지 않는다. Receiver는 body 크기·rate·content type을 검증하고 분석 없이 bounded
+Spool에 기록한다. UDS/Named Pipe는 현재 Vendor HTTP 설정이 직접 지원하지 않아 사용하지 않는다.
 
 ### 3.3 Local Dashboard
 
@@ -57,20 +58,29 @@ core/
   model, revision, availability, policy, storage
 connectors/claude/
   discovery, capability, official history adapter, normalizer
-connectors/codex/                 # Phase 8 이후
+connectors/git/
+  read-only local snapshot, normalizer, collector
+connectors/codex/
+  discovery, isolated App Server adapter, pagination, normalizer, collector
+connectors/work-systems/
+  HTTPS boundary, GitHub/GitLab/Jira/Linear adapters, pagination, normalizer, collector
+connectors/additional-ai/
+  Gemini CLI/OpenCode/Cursor/Aider adapters, discovery, normalizer, collector
 projections/
-  session projection, future analysis-unit projection
+  session/work-artifact projection, future analysis-unit projection
 analysis/
-  metric catalog, fact analyzer, future semantic analyzers
+  metric catalog, fact analyzer, usage report, semantic analyzer, Git/work correlation, OTel facts
 outputs/
   console, JSON, output policy, export audit
-receivers/                       # opt-in Hook/OTel 이후
+live/
+  opt-in Hook/OTLP receiver, bounded spool, ingestion, settings backup/rollback
 fixtures/
   synthetic Vendor contract data
 ```
 
-이 경계는 내부 모듈 구성이며 Public Connector SPI가 아니다. 두 번째 Connector 구현 전에는
-Connector 함수나 Vendor DTO를 외부 안정성 계약으로 게시하지 않는다.
+이 경계는 내부 모듈 구성이며 Public Connector SPI가 아니다. Claude/Codex 구현으로 확인한
+공통점은 별도 후보 문서에만 두며 Connector 함수나 Vendor DTO를 외부 안정성 계약으로
+게시하지 않는다.
 
 ## 5. 데이터 파이프라인
 
@@ -94,6 +104,10 @@ Fixture 또는 Vendor Source
 AnalysisRun을 `FAILED / INTERRUPTED`로 조정한다. stdout이 조용하다는 이유만으로 실패나
 완료를 판단하지 않는다.
 
+Live 경로는 `HTTP → Spool STARTED/RECEIVED → PROCESSING → Raw/Revision/Normalized →
+Analysis → COMPLETED`를 사용한다. PROCESSING에서 중단되면 다음 ingest가 FAILED/INTERRUPTED로
+조정한 뒤 재시도한다.
+
 ## 6. 핵심 데이터 모델
 
 ### 실행 및 Source
@@ -113,7 +127,9 @@ Collector와 같은 환경으로 제한한다.
 - `RawObservation`: 원천 payload reference와 Provenance
 
 동일 SourceObject와 동일 hash는 새 Revision을 만들지 않는다. 내용이 변하면 새 Revision을
-추가하며 기존 Revision을 덮어쓰지 않는다.
+추가하며 기존 Revision을 덮어쓰지 않는다. 완료된 CollectionRun이 실제로 관찰한 Revision을
+별도 relation으로 기록하므로 예전 content hash가 다시 나타나도 가장 최근 생성 Revision으로
+오인하지 않는다. 실패한 CollectionRun의 relation은 current head 선택에서 제외한다.
 
 ### Canonical 관찰
 
@@ -136,6 +152,24 @@ Lineage 관계 후보는 `RESUMED_FROM`, `FORKED_FROM`, `SUBAGENT_OF`, `COMPACTE
 - `AnalysisRun`: Analyzer·버전·입력 Revision·파라미터·비용 이력
 - `AnalysisRecord`: 값, Derivation, Availability, Evidence
 - `UserAnnotation`: 원본 분석을 덮어쓰지 않는 사용자 주장
+
+`UsageReportAnalyzer`는 SourceObject마다 가장 최근에 수집된 Revision 하나만 선택해 Session
+Evidence를 합산한다. 전체 이력 Revision을 모두 더해 재수집을 사용량으로 오인하지 않는다.
+기간 범위는 `occurredAt`의 `[since, until)`이며 collector 시각으로 누락 시각을 대체하지 않는다.
+Session 분포, Source별 count, UTC 일별 timeline과 안전한 Tool 범주는 `CALCULATED`다.
+
+Rule Semantic 결과는 별도 `INFERRED` AnalysisRun이며 Conversation content 동의가 있을 때만
+생성한다. Usage Report는 현재 Revision과 연결된 완료 Semantic run만 집계한다. 이 리포트의
+비율은 사용 패턴이지 성과·품질·자율성·AI 기여·Impact가 아니다.
+
+Usage Report는 선택 Revision의 Raw 보존 상태를 별도 Evidence 축으로 표시한다. Raw 삭제 뒤
+Normalized count를 계속 제공할 수는 있지만 `EVIDENCE_REMOVED`와 `PARTIAL`을 숨기지 않는다.
+같은 DB의 Claude OTel token/model/추정 cost/latency Fact는 event와 metric channel을 분리한 채
+표시하며 미수집 범주를 0으로 만들지 않는다. 선택 Evidence에 연결된 VerificationRecord와
+UserAnnotation은 원문을 복제하지 않는 집계로 표시하고 원 분석과 독립된 축을 유지한다.
+
+리포트의 저장 경계는 하나의 AXtory data directory와 SQLite DB다. 반복 `--source`는 같은 DB에
+수집된 Source를 고르는 filter이며 여러 DB를 연합하거나 병합하는 기능이 아니다.
 
 ## 7. 신뢰 모델
 
@@ -184,6 +218,7 @@ AnalysisRecord, Policy, ExportRun, index를 저장한다.
 - WAL, foreign key, busy timeout 사용
 - 짧은 `BEGIN IMMEDIATE` 쓰기 transaction
 - `PRAGMA user_version` 기반 forward migration
+- schema v5의 completed CollectionRun↔observed Revision relation과 migration-time legacy head
 - DB 및 데이터 디렉터리는 기본적으로 사용자 전용 권한
 - Snapshot MVP는 single writer
 
@@ -194,8 +229,10 @@ SQLite 행에 대형 원문을 반복하지 않는다. Blob hash dedup은 Usage 
 
 ### Spool
 
-Hook·OTel 수신 시에만 사용한다. append-only envelope에 started/progress/terminal 상태를
-남기며 DB 적재 후 idempotency key로 중복을 제거한다.
+Hook·OTel 수신 시에만 사용한다. Envelope state history에는 기존 상태를 바꾸지 않고
+started/progress/terminal 항목만 추가하며 매번 원자적으로 교체한다. item/byte 상한을 모두
+적용하고 DB 적재 후 idempotency key와 immutable Revision으로 중복을 제거한 뒤 terminal
+Envelope를 제거한다. DB가 장기 Evidence 소유자가 된다.
 
 ## 11. Connector 설계
 
@@ -210,9 +247,41 @@ binary를 포함하지 않는다.
 
 ### Codex
 
-Phase 8에서 공식 App Server JSON-RPC를 Contract Spike한다. `thread/list`의 metadata repair
-가능성과 `useStateDbOnly`의 coverage 차이를 먼저 검증한다. Claude DTO에 맞춘 Core SPI를
-Codex 구현에 강제하지 않는다.
+공식 App Server의 안정 `thread/list`, `thread/read(includeTurns: true)`만 사용한다. 시작 시
+runtime SQLite 쓰기가 필요하므로 원본 Codex state DB는 read-only SQLite backup으로 임시
+private `CODEX_HOME`에 복제하고 App Server의 모든 쓰기는 그 snapshot에 격리한다. 목록에는
+`useStateDbOnly: true`와 active/archive 및 현재 source kind 전체를 명시해 rollout metadata
+repair scan을 요청하지 않는다. experimental turn pagination과 내부 JSONL parser는 사용하지
+않는다.
+
+stdio adapter는 `initialize`, `thread/list`, `thread/read` 외 client request를 만들 수 없고
+server-initiated request를 거부한다. cursor와 offset, active consistency, sourceKind, lineage는
+Vendor 내부 계약이며 Claude DTO에 맞추지 않는다.
+
+### 업무 시스템
+
+GitHub/GitLab의 PR·MR, CI run/pipeline, deployment와 Jira/Linear work item을 공통
+`WorkArtifact` 내부 형태로 정규화한다. 이 형식은 Public SPI가 아니며 각 Vendor의 page/cursor,
+인증, 상태 enum은 adapter 안에 남긴다. 모든 요청은 HTTPS만 허용하고 redirect, timeout,
+16 MiB 응답 상한을 적용한다.
+
+Raw view도 Vendor 전체 응답이 아니라 ID·상태·source timestamp·명시적 commit link와 해시된
+environment/key 식별자만 남기는 allowlist다. title, body/description, comment, log, user identity,
+URL, repository name은 저장하지 않는다. commit identity는 Local Git과 동일하게 SHA-256한 뒤
+일치하는 경우에만 `OBSERVED` relation으로 결합한다.
+
+### 추가 AI Source
+
+Gemini CLI, OpenCode, Cursor Agent, Aider는 공통 `AdditionalAiSourceApi` 내부 경계를 사용하지만
+동일한 데이터 능력을 가정하지 않는다. Gemini/Cursor는 목록 ID를 해시한 metadata-only
+Revision을 만든다. OpenCode는 공식 pure JSON list/export를 사용해 Message content identity와
+명시적 Tool part occurrence를 정규화한다. Aider는 사용자가 명시한 Markdown history를 Raw로
+보존하되 Message 경계를 추론하지 않는다.
+
+CLI child process는 shell 없이 실행하고 timeout/output size/cwd를 제한한다. list preview,
+path, Vendor ID, content는 Console/JSON에 내보내지 않는다. limit와 원천 변경은 partial,
+구조화 export가 없으면 `NOT_COLLECTED` 또는 `NOT_SUPPORTED`다. 이 내부 API 역시 Public SPI가
+아니다.
 
 ## 12. CollectionPolicy와 데이터 분류
 
@@ -258,9 +327,10 @@ destination, policy version, record count, classification, status, digest를 Exp
 표시하거나 정책에 따라 함께 제거한다.
 
 marker와 명시적 `PURGE_ALL` 확인문을 요구하는 전체 데이터 디렉터리 삭제는 구현했다.
-`DELETE_RAW_ONLY`, `DELETE_RAW_AND_DERIVED`, `DELETE_SOURCE_SESSION`과 자동 Retention은
-아직 구현되지 않았다. 선택 삭제는 Blob reference count, 분석 무효화, WAL·Spool 범위까지
-Contract Test를 갖춘 후 지원 상태로 변경한다.
+`DELETE_RAW_ONLY`, `DELETE_RAW_AND_DERIVED`, `DELETE_SOURCE_SESSION`과 분류별 자동
+Retention도 구현했다. 선택 삭제는 Blob reference count, 분석 Evidence 상태 변경 또는
+파생 run 제거, SQLite `secure_delete`와 WAL checkpoint, 같은 Session의 pending Spool까지
+Contract Test로 검증한다.
 
 ## 16. 확장과 배포
 
@@ -283,11 +353,24 @@ Contract Test를 갖춘 후 지원 상태로 변경한다.
 - 반복 수집 중복 방지와 interrupted run reconciliation
 - `lastModified` 기반 증분 message read 생략과 active-source change 감지
 - 기본 CollectionPolicy 및 marker-guarded `PURGE_ALL`
+- VerificationRecord, UserAnnotation, CollectionPolicy 영속화
+- 선택 삭제, Retention, Blob/WAL/Spool 범위 처리
+- opt-in Rule Semantic Analyzer와 strict Local/Remote structured-result adapter
+- 별도 Local Git Source와 temporal correlation
+- loopback Hook/OTLP `http/json` Receiver, bounded Spool, 설정 backup/rollback
+- content-free OTel token/model/추정 cost/latency 정규화·분석
+- 격리 snapshot 기반 Codex App Server thread 수집과 Fact/Semantic 경로
+- Claude/Codex 공통 최소 Connector 계약 후보 문서
+- GitHub/GitLab/Jira/Linear 업무 시스템 Connector와 explicit Git relation
+- Gemini CLI/OpenCode/Cursor/Aider capability별 Source Connector
+- 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
+  Analytics Console/JSON 리포트
 
 ### 미구현 또는 추가 Spike 필요
 
 - resume, fork, compaction, real active session, worktree, subagent controlled contract
-- 선택 삭제, Retention, UserAnnotation, VerificationRecord
-- Hook/OTel Receiver와 설정 rollback
-- Semantic Analyzer, Git correlation, AnalysisUnit
-- Codex Connector와 Public SPI 결정
+- 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
+- OTLP gRPC/protobuf 및 beta trace 수신
+- 통제된 실제 Claude Hook/OTel live session 검증
+- 통제된 실제 Codex active/fork/subagent 사례와 추가 버전 호환성
+- Public Connector SPI 안정화·게시 결정

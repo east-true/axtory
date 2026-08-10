@@ -12,6 +12,15 @@
 | [시스템 설계](architecture/system-design.md) | 런타임, 계층, 데이터·신뢰·보안·저장 구조 | 기준 문서 |
 | [Foundation 결정](architecture/foundation.md) | 초기 불변조건과 기술 선택의 간결한 기록 | 승인됨 |
 | [Connector Contract 조사](research/connector-contracts.md) | Claude/Codex 공식 사실, 로컬 관찰, Gap | 진행 중 |
+| [1차 구현 완료 감사](release/initial-implementation-audit.md) | 기술 MVP 요구사항별 구현·검증 근거 | 완료 |
+| [2차 구현 완료 감사](release/second-implementation-audit.md) | Phase 4~7 및 선행 신뢰·삭제 계약의 구현·검증 근거 | 완료 |
+| [Phase 8 구현 감사](release/phase8-codex-audit.md) | Codex Connector, 실제 App Server Spike, SPI 후보 결정 | 완료 |
+| [업무 시스템 계약 조사](research/work-system-contracts.md) | GitHub/GitLab/Jira/Linear 공식 API와 최소 수집 계약 | 완료 |
+| [Phase 9 구현 감사](release/phase9-work-systems-audit.md) | PR·CI·Deploy·Work Item Connector와 Local Git 연결 | 완료 |
+| [추가 AI Source 계약 조사](research/additional-ai-contracts.md) | Gemini CLI/OpenCode/Cursor/Aider 공식 읽기 계약과 차이 | 완료 |
+| [Phase 10 구현 감사](release/phase10-additional-ai-audit.md) | 추가 AI Source의 증분 수집·Privacy·Coverage 검증 | 완료 |
+| [Phase 10.5 구현 감사](release/phase10-5-usage-analytics-audit.md) | 최신 Revision 기반 사용자용 Usage Analytics 리포트 | 완료 |
+| [Connector SPI 후보](architecture/connector-spi-candidate.md) | 다중 Connector 공통 최소 계약과 비공통 경계 | 후보 |
 | [기존 구현 계획](implementation-plan.md) | 최초 Repository 분석과 구현 현황 기록 | 보존 문서 |
 
 ## 상태 용어

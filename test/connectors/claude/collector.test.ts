@@ -88,11 +88,15 @@ test("official history collector is incremental and excludes content from output
     assert.equal(second.sessions.partialMessageViews, 1);
     assert.equal(second.coverage, "PARTIAL_PAGINATION");
     assert.equal(messageReadCount, messageReadsAfterFirstRun);
-    assert.deepEqual(second.metrics.map((item) => [item.key, item.value]), [
+    assert.deepEqual(second.metrics.filter((item) => item.availability === "AVAILABLE")
+      .map((item) => [item.key, item.value]), [
       ["session.count", 2],
       ["message.count", 3],
       ["tool.invocation.count", 1],
     ]);
+    const assertions = second.metrics.find((item) => item.key === "agent.assertion.count");
+    assert.equal(assertions?.value, null);
+    assert.equal(assertions?.availability, "NOT_SUPPORTED");
     const output = await readFile(join(directory, "output.json"), "utf8");
     assert.equal(output.includes(secret), false);
     assert.equal((await stat(join(directory, "axtory.sqlite3"))).mode & 0o777, 0o600);
