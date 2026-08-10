@@ -27,6 +27,7 @@ export interface DeletionResult {
   blobsDeleted: number;
   spoolEntriesDeleted: number;
   annotationsDeleted: number;
+  verificationNotesCleared: number;
 }
 
 interface InternalDeletionOptions {
@@ -36,6 +37,7 @@ interface InternalDeletionOptions {
   rawObservationIds?: readonly string[];
   spoolDeletePredicate?: (envelope: SpoolEnvelope) => boolean;
   annotationIds?: readonly string[];
+  verificationNoteIds?: readonly string[];
   now: () => Date;
   randomId: () => string;
 }
@@ -110,6 +112,9 @@ async function executeInternalDeletion(
   const annotationsDeleted = options.annotationIds === undefined
     ? 0
     : database.transaction(() => database.deleteAnnotations(options.annotationIds!));
+  const verificationNotesCleared = options.verificationNoteIds === undefined
+    ? 0
+    : database.transaction(() => database.clearVerificationNotes(options.verificationNoteIds!));
   const result: DeletionResult = {
     mode: options.mode,
     rawObservationsDeleted,
@@ -118,6 +123,7 @@ async function executeInternalDeletion(
     blobsDeleted,
     spoolEntriesDeleted,
     annotationsDeleted,
+    verificationNotesCleared,
   };
   database.recordDeletion({
     id: `deletion_${options.randomId()}`,
@@ -193,12 +199,15 @@ export async function applyRetention(options: {
     const rawIds = unique(eligible.map((item) => item.id));
     const annotationIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
       database.annotationsEligibleForRetention(classification, cutoff)));
+    const verificationNoteIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
+      database.verificationNotesEligibleForRetention(classification, cutoff)));
     return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
       mode: "RETENTION",
       target: { revisionIds: unique(eligible.map((item) => item.sourceRevisionId)) },
       dataDirectory,
       rawObservationIds: rawIds,
       annotationIds,
+      verificationNoteIds,
       spoolDeletePredicate: (envelope) => {
         const classification: DataClassification = envelope.channel === "CLAUDE_HOOK"
           ? "TOOL_CONTENT"

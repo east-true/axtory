@@ -245,12 +245,12 @@ test("usage report exposes evidence deletion, OTel channels, and connected verif
       database.insertVerificationRecord({
         id: "verification-trust", analysisRecordId: fact.analysisRecordId,
         verificationType: "HUMAN_ACCEPTANCE", status: "VERIFIED", provenance: "USER_PROVIDED",
-        evidenceIds: [], note: "must not be exported", verifiedAt: "2026-08-09T00:01:00.000Z",
+        evidenceIds: [], note: "must not be exported", noteClassification: "PERSONAL_DATA", verifiedAt: "2026-08-09T00:01:00.000Z",
       });
       database.insertVerificationRecord({
         id: "verification-untrusted", analysisRecordId: fact.analysisRecordId,
         verificationType: "PRIVATE\nTYPE" as never, status: "UNTRUSTED\u001b" as never,
-        provenance: "USER_PROVIDED", evidenceIds: [], note: null,
+        provenance: "USER_PROVIDED", evidenceIds: [], note: null, noteClassification: "PERSONAL_DATA",
         verifiedAt: "2026-08-09T00:01:01.000Z",
       });
       database.insertUserAnnotation({

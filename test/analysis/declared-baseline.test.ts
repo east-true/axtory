@@ -111,17 +111,18 @@ test("a scope with no declared baseline stays NOT_COLLECTED instead of reporting
   }
 });
 
-test("a declared baseline must be a non-negative integer number of minutes", async () => {
+test("a declared baseline must be a positive integer number of minutes", async () => {
   const { directory, revisionId, databasePath } = await seeded();
   try {
     const database = new AxtoryDatabase(databasePath);
     try {
-      for (const invalid of [-30, 12.5]) {
+      // Zero is rejected at both boundaries: the CLI and the store agree on the same rule.
+      for (const invalid of [-30, 0, 12.5]) {
         assert.throws(() => database.insertUserAnnotation({
           id: `invalid-${invalid}`, targetType: "SOURCE_REVISION", targetId: revisionId,
           assertion: "bad baseline", dataClassification: "LOCAL_METADATA", baselineMinutes: invalid,
           createdAt: "2026-08-09T00:01:00.000Z",
-        }), /non-negative integer number of minutes/u);
+        }), /positive integer number of minutes/u);
       }
     } finally {
       database.close();

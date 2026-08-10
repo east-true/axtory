@@ -39,7 +39,7 @@ test("raw-only deletion removes unreferenced blobs and marks dependent evidence 
     });
     database.insertVerificationRecord({
       id: "verification-1", analysisRecordId: analysis.id, verificationType: "HUMAN_ACCEPTANCE",
-      status: "VERIFIED", provenance: "USER_PROVIDED", evidenceIds: [], note: null,
+      status: "VERIFIED", provenance: "USER_PROVIDED", evidenceIds: [], note: null, noteClassification: "PERSONAL_DATA",
       verifiedAt: "2026-08-02T00:00:00.000Z",
     });
     database.close();
@@ -56,6 +56,7 @@ test("raw-only deletion removes unreferenced blobs and marks dependent evidence 
     assert.deepEqual(result, {
       mode: "DELETE_RAW_ONLY", rawObservationsDeleted: 1, normalizedObservationsDeleted: 0,
       analysisRunsDeleted: 0, blobsDeleted: 1, spoolEntriesDeleted: 0, annotationsDeleted: 0,
+      verificationNotesCleared: 0,
     });
     await assert.rejects(access(join(directory, "blobs", raw.payload_reference)));
     const verifier = new DatabaseSync(run.databasePath, { readOnly: true });

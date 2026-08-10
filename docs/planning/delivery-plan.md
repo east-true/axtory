@@ -226,6 +226,16 @@ filter이며 서로 다른 data directory를 연합하지 않는다.
 Annotation privacy, 실제 child-process CLI를 합성 테스트로 검증했다. 비어 있지 않은 로컬
 Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON에 없음을 확인했다.
 
+**후속:** 같은 범위 안에서 다섯 가지를 추가했다. Semantic 상한 초과 시 각 창이 상한을 넘지
+않는 `--since`/`--until` 조합을 계산해 제시한다. `list-annotations`는 `annotate`와
+`verify --note`가 저장한 사용자 작성 텍스트를 stdout으로만 되읽으며 파일이나 ExportRun을 남기지
+않는다. schema v6·v8이 Annotation과 Verification Note에 DataClassification을 부여해 Retention
+경로에 연결했고, Annotation은 레코드를 삭제하지만 Note는 텍스트만 지워 Verification 상태를
+남긴다. `compare-usage`는 두 기간을 각각 측정해 나란히 출력하되 양쪽이 모두 측정한 값에만 차이를
+제시하고 인과를 주장하지 않는다. schema v7 `--baseline-minutes`는 사용자가 선언한 기준선을
+숫자로 저장하며, Export 정책이 허용하는 분류만 합산하고 나머지는 `REDACTED`로 보류한다.
+AXtory는 뺄셈할 실제 소요 시간을 기록하지 않으므로 이 합계를 절약된 시간으로 제시하지 않는다.
+
 ## Phase 11
 
 - **Phase 11 Impact Analysis:** 충분한 사용자별 baseline 이후 ESTIMATED 효과 분석

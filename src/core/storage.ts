@@ -47,21 +47,28 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 7) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 7) return;
+    if (version.user_version > 8) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 8) return;
+    if (version.user_version === 7) {
+      this.migrateToVersion8();
+      return;
+    }
     if (version.user_version === 6) {
       this.migrateToVersion7();
+      this.migrateToVersion8();
       return;
     }
     if (version.user_version === 5) {
       this.migrateToVersion6();
       this.migrateToVersion7();
+      this.migrateToVersion8();
       return;
     }
     if (version.user_version === 4) {
       this.migrateToVersion5();
       this.migrateToVersion6();
       this.migrateToVersion7();
+      this.migrateToVersion8();
       return;
     }
     if (version.user_version === 3) {
@@ -69,6 +76,7 @@ export class AxtoryDatabase {
       this.migrateToVersion5();
       this.migrateToVersion6();
       this.migrateToVersion7();
+      this.migrateToVersion8();
       return;
     }
     if (version.user_version === 1) {
@@ -223,6 +231,7 @@ export class AxtoryDatabase {
     this.migrateToVersion5();
     this.migrateToVersion6();
     this.migrateToVersion7();
+    this.migrateToVersion8();
   }
 
   private migrateToVersion4(): void {
@@ -304,6 +313,19 @@ export class AxtoryDatabase {
       ${this.needsColumn("user_annotations", "baseline_minutes")
         ? `ALTER TABLE user_annotations ADD COLUMN baseline_minutes INTEGER;` : ""}
       PRAGMA user_version = 7;
+      COMMIT;
+    `);
+  }
+
+  // Schema 8 classifies the note a verification carries. The note is optional text on a record whose
+  // status is not text, so retention clears the note and keeps the verification itself.
+  private migrateToVersion8(): void {
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${this.needsColumn("verification_records", "note_classification")
+        ? `ALTER TABLE verification_records
+            ADD COLUMN note_classification TEXT NOT NULL DEFAULT 'PERSONAL_DATA';` : ""}
+      PRAGMA user_version = 8;
       COMMIT;
     `);
   }
@@ -533,11 +555,28 @@ export class AxtoryDatabase {
   insertVerificationRecord(record: VerificationRecord): void {
     this.db.prepare(`INSERT INTO verification_records(
       id, analysis_record_id, verification_type, status, provenance,
-      evidence_ids_json, note, verified_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      evidence_ids_json, note, note_classification, verified_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       record.id, record.analysisRecordId, record.verificationType, record.status,
-      record.provenance, canonicalJson(record.evidenceIds), record.note, record.verifiedAt,
+      record.provenance, canonicalJson(record.evidenceIds), record.note, record.noteClassification,
+      record.verifiedAt,
     );
+  }
+
+  // Retention clears the text and keeps the verification, because a status is not the note that
+  // explains it and deleting the record would destroy an unexpired fact.
+  verificationNotesEligibleForRetention(classification: string, verifiedBefore: string): string[] {
+    return (this.db.prepare(`SELECT id FROM verification_records
+      WHERE note IS NOT NULL AND note_classification = ? AND verified_at < ? ORDER BY id`)
+      .all(classification, verifiedBefore) as Array<{ id: string }>).map((row) => row.id);
+  }
+
+  clearVerificationNotes(verificationIds: readonly string[]): number {
+    if (verificationIds.length === 0) return 0;
+    const placeholders = verificationIds.map(() => "?").join(",");
+    return Number(this.db.prepare(
+      `UPDATE verification_records SET note = NULL WHERE note IS NOT NULL AND id IN (${placeholders})`,
+    ).run(...verificationIds).changes);
   }
 
   verificationRecordsForEvidenceIds(evidenceIds: readonly string[]): Array<{
@@ -592,9 +631,11 @@ export class AxtoryDatabase {
     const targetTable = annotation.targetType === "SOURCE_REVISION" ? "source_revisions" : "analysis_records";
     const target = this.db.prepare(`SELECT id FROM ${targetTable} WHERE id = ?`).get(annotation.targetId);
     if (!target) throw new Error("user annotation target does not exist");
+    // The CLI already rejects zero, and a baseline of no time is not a claim anyone makes, so both
+    // boundaries agree on a positive integer rather than disagreeing about zero.
     if (annotation.baselineMinutes !== null &&
-      (!Number.isInteger(annotation.baselineMinutes) || annotation.baselineMinutes < 0)) {
-      throw new Error("a declared baseline must be a non-negative integer number of minutes");
+      (!Number.isInteger(annotation.baselineMinutes) || annotation.baselineMinutes <= 0)) {
+      throw new Error("a declared baseline must be a positive integer number of minutes");
     }
     this.db.prepare(`INSERT INTO user_annotations(
       id, target_type, target_id, assertion, data_classification, baseline_minutes, created_at

@@ -33,7 +33,7 @@ test("user-authored annotations and verification notes remain readable after the
       database.insertVerificationRecord({
         id: "verification-readback", analysisRecordId: fact.analysisRecordId,
         verificationType: "HUMAN_ACCEPTANCE", status: "VERIFIED", provenance: "USER_PROVIDED",
-        evidenceIds: [], note: "checked against the deploy log", verifiedAt: "2026-08-09T00:03:00.000Z",
+        evidenceIds: [], note: "checked against the deploy log", noteClassification: "PERSONAL_DATA", verifiedAt: "2026-08-09T00:03:00.000Z",
       });
 
       const all = database.userAnnotations({});
