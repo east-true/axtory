@@ -235,6 +235,15 @@ Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON
 제시하고 인과를 주장하지 않는다. schema v7 `--baseline-minutes`는 사용자가 선언한 기준선을
 숫자로 저장하며, Export 정책이 허용하는 분류만 합산하고 나머지는 `REDACTED`로 보류한다.
 AXtory는 뺄셈할 실제 소요 시간을 기록하지 않으므로 이 합계를 절약된 시간으로 제시하지 않는다.
+schema v9는 Retention이 지운 Verification Note 수를 `deletion_runs`에 남겨 삭제 감사가 실제
+수행분과 일치하게 했다.
+
+**정합성 보강:** Connector·Live·Report 경로 감사로 확인한 결함을 함께 수정했다. 원천 시각은
+UTC로 정규화한 뒤에만 저장하고, live envelope 하나의 실패가 같은 실행에서 적재된 Revision을
+가리지 않으며, 식별자 없는 Message는 partial coverage로 보존한다. Vendor 고유 id가 없으면
+다른 식별자 namespace로 대체하지 않고 실패한다. 응답 크기 상한은 버퍼링 전 streaming 중
+적용하고, evidence 목록이 SQLite host parameter 상한을 넘어도 batch로 나눠 동작한다.
+Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소모하지 못하게 한다.
 
 ## Phase 11
 
