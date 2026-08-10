@@ -543,6 +543,44 @@ export class AxtoryDatabase {
     );
   }
 
+  // User-authored text has no read path other than this one: the usage report deliberately exports
+  // counts only, so an annotation or verification note would otherwise be write-only.
+  userAnnotations(filter: { targetType?: UserAnnotation["targetType"]; targetId?: string }): UserAnnotation[] {
+    const conditions: string[] = [];
+    const parameters: string[] = [];
+    if (filter.targetType !== undefined) {
+      conditions.push("target_type = ?");
+      parameters.push(filter.targetType);
+    }
+    if (filter.targetId !== undefined) {
+      conditions.push("target_id = ?");
+      parameters.push(filter.targetId);
+    }
+    const rows = this.db.prepare(`SELECT id, target_type, target_id, assertion, created_at
+      FROM user_annotations ${conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`}
+      ORDER BY created_at, id`).all(...parameters) as Array<Record<string, string>>;
+    return rows.map((row) => ({
+      id: row.id!, targetType: row.target_type as UserAnnotation["targetType"],
+      targetId: row.target_id!, assertion: row.assertion!, createdAt: row.created_at!,
+    }));
+  }
+
+  verificationNotes(filter: { analysisRecordId?: string }): Array<{
+    id: string; analysisRecordId: string; verificationType: VerificationType;
+    status: VerificationStatus; note: string | null; verifiedAt: string;
+  }> {
+    const rows = this.db.prepare(`SELECT id, analysis_record_id, verification_type, status, note, verified_at
+      FROM verification_records ${filter.analysisRecordId === undefined ? "" : "WHERE analysis_record_id = ?"}
+      ORDER BY verified_at, id`)
+      .all(...(filter.analysisRecordId === undefined ? [] : [filter.analysisRecordId])) as
+      Array<Record<string, string | null>>;
+    return rows.map((row) => ({
+      id: row.id!, analysisRecordId: row.analysis_record_id!,
+      verificationType: row.verification_type as VerificationType,
+      status: row.status as VerificationStatus, note: row.note ?? null, verifiedAt: row.verified_at!,
+    }));
+  }
+
   saveCollectionPolicy(policy: CollectionPolicy, createdAt: string): void {
     this.db.prepare(`INSERT INTO collection_policies(version, policy_json, created_at)
       VALUES (?, ?, ?) ON CONFLICT(version) DO UPDATE SET policy_json = excluded.policy_json`).run(
