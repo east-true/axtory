@@ -107,6 +107,10 @@ export async function readLocalGitSnapshot(options: {
   if (head.exitCode !== 0 && history.exitCode === 0 && history.stdout.trim()) {
     throw new Error("local Git returned history without a valid HEAD");
   }
+  if (head.exitCode === 0 && history.exitCode !== 0) {
+    throw new Error("local Git log failed with exit code " +
+      `${history.exitCode} for a repository with a valid HEAD`);
+  }
   return {
     schemaVersion: "axtory.local-git-snapshot.v1",
     repositoryIdentity: sha256(repositoryRoot),
