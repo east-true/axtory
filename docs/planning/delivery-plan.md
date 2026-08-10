@@ -131,7 +131,11 @@ metrics/logs에서 content/identity를 정규화 결과에 복제하지 않고 t
 
 **검증:** 합성 Hook/OTLP payload, 실제 임시 Git repository, 설정 merge/backup/rollback,
 Spool 중단 복구·idempotency, Blob/WAL/Spool 삭제 범위를 자동 테스트한다. 실제 Claude live
-세션 발화는 사용자 설정을 자동 변경하지 않기 위해 2차 완료 감사에 포함하지 않는다.
+세션 발화는 이후 `claude --settings <격리 파일>`로 검증했다. 사용자 전역 설정은 읽지도 쓰지도
+않았고 digest가 전후 동일했으며, 생성한 설정은 `rollback-live`로 원본과 byte 단위로 복원했다.
+실제 Hook 3건과 OTLP 3건이 도착했고 token·model·추정 cost·latency Fact를 event·metric channel
+별로 얻었다. 실제 payload가 담은 `tool_input`, `tool_response`, `last_assistant_message`, cwd,
+transcript path는 Canonical 관찰에 남지 않았다.
 
 ## Phase 8: Codex
 
