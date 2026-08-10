@@ -220,6 +220,70 @@ function inWindow(timestamp: string | null, since: string | null, until: string 
   return (since === null || timestamp >= since) && (until === null || timestamp < until);
 }
 
+function sessionExtent(input: SessionInput): { start: string; end: string } | null {
+  const timestamps = [input.session.occurredAt, ...input.messages.map((item) => item.occurredAt),
+    ...input.tools.map((item) => item.occurredAt)]
+    .filter((value): value is string => value !== null)
+    .sort();
+  return timestamps.length === 0 ? null : { start: timestamps[0]!, end: timestamps.at(-1)! };
+}
+
+function eligibleSemanticCount(
+  eligibleUniverse: readonly SessionInput[],
+  since: string | null,
+  until: string | null,
+): number {
+  return selectedSessions(eligibleUniverse, since, until).sessions.length;
+}
+
+// Suggests --since/--until windows that each stay within `limit` eligible revisions, by binary
+// searching the real selection filter for the widest `until` a window can reach without going
+// over. A session whose messages straddle a chosen boundary can still be pulled into both
+// neighboring windows (and get re-analyzed in each), but no single window ever exceeds `limit`.
+// Eligibility (rule-semantics support + retained conversation content) only depends on each
+// session's revision, not on `since`/`until`, so it is computed once up front rather than
+// re-querying the database on every binary-search probe.
+function suggestSemanticWindows(
+  universe: readonly SessionInput[],
+  database: AxtoryDatabase,
+  outerSince: string | null,
+  outerUntil: string | null,
+  limit: number,
+): Array<{ since: string | null; until: string | null }> {
+  const eligibleUniverse = universe.filter(supportsRuleSemantics).filter((input) =>
+    database.rawObservationForRevision(input.revisionId)?.dataClassification === "CONVERSATION_CONTENT");
+  const extents = eligibleUniverse.map(sessionExtent).filter((value): value is { start: string; end: string } =>
+    value !== null);
+  if (extents.length === 0) return [];
+  const earliestMs = Math.min(...extents.map((extent) => Date.parse(extent.start)));
+  const latestMs = Math.max(...extents.map((extent) => Date.parse(extent.end)));
+  const hardUntilMs = outerUntil ? Date.parse(outerUntil) : latestMs + 1;
+
+  const windows: Array<{ since: string | null; until: string | null }> = [];
+  let cursor = outerSince;
+  for (let guard = 0; guard < extents.length; guard += 1) {
+    const total = eligibleSemanticCount(eligibleUniverse, cursor, outerUntil);
+    if (total === 0) break;
+    if (total <= limit) {
+      windows.push({ since: cursor, until: outerUntil });
+      break;
+    }
+    let lo = cursor ? Date.parse(cursor) : earliestMs;
+    let hi = hardUntilMs;
+    for (let step = 0; step < 50 && hi - lo > 1; step += 1) {
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const midIso = new Date(mid).toISOString();
+      if (eligibleSemanticCount(eligibleUniverse, cursor, midIso) <= limit) lo = mid; else hi = mid;
+    }
+    const boundary = new Date(lo).toISOString();
+    const nextCursor = cursor !== null && boundary <= cursor ? new Date(Date.parse(cursor) + 1).toISOString()
+      : boundary;
+    windows.push({ since: cursor, until: nextCursor });
+    cursor = nextCursor;
+  }
+  return windows;
+}
+
 function utcDay(timestamp: string): string {
   return timestamp.slice(0, 10);
 }
@@ -387,7 +451,20 @@ export async function generateUsageReport(options: {
   });
   if (options.allowConversationContent) {
     if (eligibleSemanticInputs.length > SEMANTIC_REVISION_LIMIT) {
-      throw new Error("opt-in usage semantic analysis is limited to 100 revisions; narrow --source or the time window");
+      const windows = suggestSemanticWindows(selected.sessions, database, since, until, SEMANTIC_REVISION_LIMIT);
+      const hint = windows
+        .map((window, index) => {
+          const flags = [window.since ? `--since ${window.since}` : null, window.until ? `--until ${window.until}` : null]
+            .filter((flag): flag is string => flag !== null)
+            .join(" ");
+          return `  ${index + 1}) ${flags}`;
+        })
+        .join("\n");
+      throw new Error(
+        `opt-in usage semantic analysis is limited to ${SEMANTIC_REVISION_LIMIT} revisions `
+        + `(${eligibleSemanticInputs.length} eligible in this scope); narrow --source or the time window.\n`
+        + `Run --allow-conversation-content once per suggested window below, with a distinct --json-out each time:\n${hint}`,
+      );
     }
     const missing = eligibleSemanticInputs.filter((input) =>
       database.completedAnalysisForExactInputs(
