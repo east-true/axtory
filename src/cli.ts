@@ -44,10 +44,25 @@ import { GeminiCliSourceApi } from "./connectors/additional-ai/gemini.js";
 import { OpenCodeSourceApi } from "./connectors/additional-ai/opencode.js";
 import type { AdditionalAiProvider, AdditionalAiSourceApi } from "./connectors/additional-ai/types.js";
 import { generateUsageReport, renderUsageReport } from "./analysis/usage-report.js";
+import { compareUsageWindows, renderUsageComparison } from "./analysis/usage-comparison.js";
+
+const SOURCE_TYPE_NAMES: Readonly<Record<string, string>> = {
+  claude: "CLAUDE_CODE", codex: "CODEX", fixture: "FIXTURE",
+  gemini: "ADDITIONAL_AI_GEMINI_CLI", opencode: "ADDITIONAL_AI_OPENCODE",
+  cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER",
+};
 
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function requestedSourceTypes(args: readonly string[]): string[] {
+  return options(args, "--source").map((value) => {
+    const sourceType = SOURCE_TYPE_NAMES[value.toLowerCase()];
+    if (!sourceType) throw new Error("--source must be claude, codex, fixture, gemini, opencode, cursor, or aider");
+    return sourceType;
+  });
 }
 
 function options(args: readonly string[], name: string): string[] {
@@ -290,16 +305,7 @@ async function main(args: readonly string[]): Promise<void> {
     if (!dataDirectory || !jsonOutputPath) {
       throw new Error("report-usage requires --data-dir and --json-out");
     }
-    const sourceNames: Readonly<Record<string, string>> = {
-      claude: "CLAUDE_CODE", codex: "CODEX", fixture: "FIXTURE",
-      gemini: "ADDITIONAL_AI_GEMINI_CLI", opencode: "ADDITIONAL_AI_OPENCODE",
-      cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER",
-    };
-    const requestedSources = options(args, "--source").map((value) => {
-      const sourceType = sourceNames[value.toLowerCase()];
-      if (!sourceType) throw new Error("--source must be claude, codex, fixture, gemini, opencode, cursor, or aider");
-      return sourceType;
-    });
+    const requestedSources = requestedSourceTypes(args);
     const output = await generateUsageReport({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
@@ -308,6 +314,34 @@ async function main(args: readonly string[]): Promise<void> {
       allowConversationContent: args.includes("--allow-conversation-content"),
     });
     process.stdout.write(renderUsageReport(output));
+    return;
+  }
+  if (command === "compare-usage") {
+    const dataDirectory = option(args, "--data-dir");
+    if (!dataDirectory) throw new Error("compare-usage requires --data-dir");
+    const earlier = {
+      ...(option(args, "--earlier-since") ? { since: option(args, "--earlier-since")! } : {}),
+      ...(option(args, "--earlier-until") ? { until: option(args, "--earlier-until")! } : {}),
+    };
+    const later = {
+      ...(option(args, "--later-since") ? { since: option(args, "--later-since")! } : {}),
+      ...(option(args, "--later-until") ? { until: option(args, "--later-until")! } : {}),
+    };
+    if (Object.keys(earlier).length === 0 || Object.keys(later).length === 0) {
+      throw new Error("compare-usage requires a bound on each window: " +
+        "--earlier-since/--earlier-until and --later-since/--later-until");
+    }
+    if (earlier.since === later.since && earlier.until === later.until) {
+      throw new Error("compare-usage needs two different windows");
+    }
+    const jsonOutputPath = option(args, "--json-out");
+    const requestedSources = requestedSourceTypes(args);
+    const output = await compareUsageWindows({
+      dataDirectory: resolve(dataDirectory), earlier, later,
+      ...(jsonOutputPath ? { jsonOutputPath: resolve(jsonOutputPath) } : {}),
+      ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
+    });
+    process.stdout.write(renderUsageComparison(output));
     return;
   }
   if (command === "collect-work-system") {

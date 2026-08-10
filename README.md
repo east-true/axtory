@@ -327,9 +327,22 @@ Two habits keep that outside model closer to evidence:
 - Record a baseline while the work is fresh instead of reconstructing it afterwards. `annotate`
   stores the claim against the revision it belongs to, and `list-annotations` reads it back. It
   stays your assertion; AXtory never folds it into a computed result.
-- Compare periods you actually observed instead of measuring one against a guess. Two `report-usage`
-  runs over different `--since`/`--until` windows produce two measured distributions. The contrast
-  is real, but attributing it to the agent remains your inference rather than the tool's.
+- Compare periods you actually observed instead of measuring one against a guess. `compare-usage`
+  measures two windows and prints them side by side. The contrast is real, but attributing it to the
+  agent remains your inference rather than the tool's.
+
+```sh
+node dist/src/cli.js compare-usage --data-dir .local/axtory-claude --source claude \
+  --earlier-until 2026-07-20T00:00:00Z \
+  --later-since 2026-07-20T00:00:00Z
+```
+
+Each window is bounded separately, and a difference appears only where both windows measured the
+value; an unmeasured side stays `UNKNOWN` instead of becoming a delta against an assumed zero. If a
+window is partial, its difference inherits that uncertainty rather than being promoted to complete.
+`--json-out` is optional: without it the comparison prints to stdout and records no export run.
+Because windows are bounded independently, a session whose events straddle a boundary is counted in
+both windows it overlaps.
 
 ## Contributing and security
 
