@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { generateUsageReport } from "../../src/analysis/usage-report.js";
+import { ContentAddressedBlobStore } from "../../src/core/blob-store.js";
 import { stableId } from "../../src/core/canonical-json.js";
 import { executeSelectiveDeletion } from "../../src/core/deletion.js";
 import type { NormalizedObservation } from "../../src/core/records.js";
@@ -120,6 +121,89 @@ test("usage report runs and integrates opt-in semantics for current retained rev
     assert.equal(report.semantics.assertions, 1);
     assert.deepEqual(report.semantics.categories, [{ category: "CHANGE_COMPLETED", count: 1 }]);
     assert.equal((await readFile(join(directory, "usage.json"), "utf8")).includes("synthetic artifact"), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("usage report suggests non-overlapping windows when the semantic revision limit is exceeded", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-usage-limit-"));
+  try {
+    const database = new AxtoryDatabase(join(directory, "axtory.sqlite3"));
+    const blob = await new ContentAddressedBlobStore(join(directory, "blobs")).put(new TextEncoder().encode(
+      JSON.stringify({ session: { messages: [{ role: "assistant", blocks: [{ type: "text", text: "fixed it" }] }] } }),
+    ));
+    const total = 150;
+    const baseMs = Date.parse("2026-03-01T00:00:00.000Z");
+    try {
+      database.startCollectionRun("collection_limit", "FIXTURE", "2026-03-01T00:00:00.000Z");
+      database.transaction(() => {
+        for (let index = 0; index < total; index += 1) {
+          const sourceObjectId = `source_limit_${index}`;
+          const revisionId = `revision_limit_${index}`;
+          const occurredAt = new Date(baseMs + index * 3_600_000).toISOString();
+          database.upsertSourceObject(sourceObjectId, "FIXTURE", `limit-session-${index}`);
+          database.insertRevision({
+            id: revisionId, sourceObjectId, contentHash: index.toString(16).padStart(64, "0"),
+            collectedAt: occurredAt, sourceModifiedAt: occurredAt,
+            normalizerVersion: "usage-limit-test/1", payloadReference: blob.relativePath,
+          });
+          database.linkCollectionRevision("collection_limit", sourceObjectId, revisionId, occurredAt);
+          const base = {
+            sourceRevisionId: revisionId, derivation: "OBSERVED" as const, provenance: "LOCAL_FILE" as const,
+            dataClassification: "LOCAL_METADATA" as const, occurredAt, timeQuality: "SOURCE_REPORTED" as const,
+          };
+          database.insertObservations([
+            { ...base, id: `obs_session_${index}`, stableKey: "session", kind: "SNAPSHOT",
+              payload: { messageCoverage: "FULL" } },
+            { ...base, id: `obs_message_${index}`, stableKey: "message:0:assistant", kind: "CONTENT",
+              payload: { role: "assistant" } },
+          ]);
+          database.insertRawObservation({
+            id: `raw_${index}`, sourceRevisionId: revisionId, observationType: "FIXTURE_DOCUMENT",
+            provenance: "LOCAL_FILE", dataClassification: "CONVERSATION_CONTENT",
+            payloadReference: blob.relativePath, observedAt: occurredAt, sourceModifiedAt: occurredAt,
+          });
+        }
+      });
+      database.finishCollectionRun("collection_limit", "COMPLETED", "2026-03-02T00:00:00.000Z");
+    } finally {
+      database.close();
+    }
+
+    let sequence = 0;
+    let message = "";
+    try {
+      await generateUsageReport({
+        dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"), allowConversationContent: true,
+        now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `limit-${++sequence}`,
+      });
+      assert.fail("expected the 100-revision limit to reject");
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      message = error.message;
+    }
+    assert.match(message, /limited to 100 revisions \(150 eligible in this scope\)/u);
+    const firstWindow = message.match(/1\) --until (\S+)/u);
+    const secondWindow = message.match(/2\) --since (\S+)$/mu);
+    assert.ok(firstWindow, message);
+    assert.ok(secondWindow, message);
+    assert.equal(firstWindow![1], secondWindow![1]);
+    assert.equal(/3\)/u.test(message), false, "150 revisions should split into exactly two windows of <=100");
+
+    const reportOne = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage-1.json"), allowConversationContent: true,
+      until: firstWindow![1]!, now: () => new Date("2026-03-10T00:00:00.000Z"),
+      randomId: () => `limit1-${++sequence}`,
+    });
+    const reportTwo = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage-2.json"), allowConversationContent: true,
+      since: secondWindow![1]!, now: () => new Date("2026-03-10T00:00:00.000Z"),
+      randomId: () => `limit2-${++sequence}`,
+    });
+    assert.ok(reportOne.semantics.eligibleRevisions! <= 100);
+    assert.ok(reportTwo.semantics.eligibleRevisions! <= 100);
+    assert.equal(reportOne.semantics.eligibleRevisions! + reportTwo.semantics.eligibleRevisions!, total);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
