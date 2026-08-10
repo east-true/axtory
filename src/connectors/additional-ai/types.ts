@@ -1,13 +1,14 @@
 import type { DataClassification, Provenance } from "../../core/records.js";
 import { isoTimestamp as coreIsoTimestamp } from "../../core/time.js";
 
-export const ADDITIONAL_AI_PROVIDERS = ["GEMINI_CLI", "OPENCODE", "CURSOR", "AIDER"] as const;
+export const ADDITIONAL_AI_PROVIDERS = ["GEMINI_CLI", "OPENCODE", "CURSOR", "AIDER", "KIMI_CODE"] as const;
 export type AdditionalAiProvider = (typeof ADDITIONAL_AI_PROVIDERS)[number];
 
 export type AdditionalAiCoverage =
   | "COMPLETE_FOR_RETURNED_VIEW"
   | "PARTIAL_LIMIT"
   | "PARTIAL_SOURCE_CHANGED"
+  | "PARTIAL_COMPACTION"
   | "METADATA_ONLY"
   | "UNKNOWN";
 

@@ -152,8 +152,8 @@ record it verifies is deleted.
 
 ## Additional AI sources
 
-The snapshot collector supports Gemini CLI, OpenCode, Cursor Agent, and Aider without bundling
-their executables or changing their settings:
+The snapshot collector supports Gemini CLI, OpenCode, Cursor Agent, Aider, and Kimi Code without
+bundling their executables or changing their settings:
 
 ```sh
 npm run build
@@ -166,8 +166,9 @@ node dist/src/cli.js collect-additional-ai \
   --data-dir .local/axtory-aider --json-out .local/axtory-aider/output.json
 ```
 
-Use `--provider gemini` or `--provider cursor` for the other installed CLIs, and `--limit` to
-bound enumeration. Capabilities differ by the official read interfaces each provider exposes:
+Use `--provider gemini`, `--provider cursor`, or `--provider kimi` for the others, and `--limit` to
+bound enumeration. Kimi Code is read from its documented session store, so it needs no executable;
+pass `--kimi-home` to override `$KIMI_CODE_HOME`. Capabilities differ by the official read interfaces each provider exposes:
 
 | Provider | Source contract | Message/tool facts |
 | --- | --- | --- |
@@ -175,6 +176,7 @@ bound enumeration. Capabilities differ by the official read interfaces each prov
 | Gemini CLI | Session list | `NOT_COLLECTED`; metadata only |
 | Cursor Agent | Session list | `NOT_COLLECTED`; metadata only |
 | Aider | Explicit chat-history Markdown file | `NOT_SUPPORTED`; raw log only |
+| Kimi Code | Documented session store and JSON-RPC `wire.jsonl` | Available for the documented events |
 
 Conversation exports and Aider Markdown remain sensitive local blobs. Console and JSON output
 contain only aggregate counts, Availability, coverage, and evidence status. See

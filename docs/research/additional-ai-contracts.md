@@ -94,7 +94,7 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 
 | 후보 | 공식 읽기 경로 | 판정 |
 | --- | --- | --- |
-| Kimi Code | `kimi export <sessionId>`(ZIP, `-y`로 비대화형), 문서화된 `$KIMI_CODE_HOME/sessions/`(기본 `~/.kimi-code/sessions/`)의 `<workDirKey>/<sessionId>/state.json`과 `agents/*/wire.jsonl` | `PROPOSED`. 실제 설치본 0.34.0으로 명령 존재를 확인했다. OpenCode 다음으로 근거가 갖춰진 후보다. |
+| Kimi Code | 문서화된 `$KIMI_CODE_HOME`(기본 `~/.kimi-code`)의 `session_index.jsonl`, `sessions/<workDirKey>/<sessionId>/state.json`, `agents/main/wire.jsonl` | **구현함.** 실제 설치본 0.34.0으로 명령 존재를 확인했고 문서화된 wire schema로 Message·Tool까지 정규화한다. |
 | GitHub Copilot CLI | 없음. 1.0.78의 하위 명령은 completion/help/init/login/mcp/plugin/plugins/skill/update/version뿐이고 세션 목록·export 명령이나 플래그가 없다. `--continue`와 `--connect`로 세션이 유지됨은 확인되지만 저장 형식은 문서화돼 있지 않다. | `NOT_SUPPORTED`. 문서화되지 않은 저장물을 parsing하지 않는다는 규칙에 걸린다. |
 | Muse Code | 로컬 append-only event log와 `muse replay`가 있으나 개발자 포털 로그인 뒤라 공개 문서가 없다. | `NEEDS_SPIKE`. 공개 계약을 확인하기 전에는 판정하지 않는다. |
 
@@ -117,11 +117,41 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 - Session이 없으면 `export`가 exit 1과 `No previous session found to export.`로 끝난다.
   빈 결과를 성공으로 위장하지 않으므로 Availability 판정에 그대로 쓸 수 있다.
 - `sessions/` 디렉터리는 지연 생성이라 미사용 설치에서는 없다. 부재를 수집 실패로 다루면 안 된다.
-- 산출물이 ZIP이므로 Connector는 압축 해제 경로가 필요하다. Node 기본 모듈에 ZIP reader가 없어
-  Core 의존성 0 원칙과 충돌하는지 구현 전에 판단해야 한다.
+- 산출물이 ZIP이므로 export 경로를 쓰면 압축 해제가 필요하다. Node 기본 모듈에 ZIP reader가
+  없어 Core 의존성 0 원칙과 충돌하므로, Connector는 export 대신 문서화된 저장소를 직접 읽는다.
+  같은 이유로 전역 진단 로그가 함께 묶이는 문제도 발생하지 않는다.
 
 자격증명이 없어 실제 Session을 만들지 못했으므로 `state.json`과 `wire.jsonl`의 실제 내용은
 검증하지 않았다.
 
 출처: <https://www.kimi.com/code>, <https://www.kimi.com/code/docs/en/kimi-code-cli/guides/sessions.html>,
 <https://github.com/github/copilot-cli>, <https://research.meta.ai/blog/introducing-muse-code-and-muse-spark-1-2>
+
+### Kimi Code Connector 구현 계약
+
+`wire.jsonl`은 JSON-RPC 2.0이며 공식 Wire mode 문서가 method와 event 이름을 고정한다. 문서에
+있는 이름만 읽는다.
+
+| 문서화된 항목 | Canonical 처리 |
+| --- | --- |
+| `prompt` request | USER Message occurrence |
+| `ContentPart` event | ASSISTANT Message occurrence, part type만 보존 |
+| `ToolCall`, `ToolResult` event | Tool occurrence |
+| `CompactionBegin` event | coverage `PARTIAL_COMPACTION` |
+| `state.json` | createdAt/updatedAt만 사용, 키 이름은 문서에 없어 여러 표기를 허용하고 실패 시 unavailable |
+| `session_index.jsonl` | `workDir`로 프로젝트 범위 filter, `sessionDir`로 세션 위치 확인 |
+
+경계 규칙은 다음과 같다.
+
+- 인식하지 못한 line은 의미를 추론하지 않는다. 다만 line이 있는데 문서화된 event가 하나도 없으면
+  형식 변경이므로 실패한다. 빈 세션으로 위장하지 않는다.
+- `agents/main/wire.jsonl`이 없으면 coverage `UNKNOWN`이며 Message 0건이 아니다.
+- `session_index.jsonl` 부재는 최초 세션 이전 상태이므로 빈 이력이고 수집 실패가 아니다.
+- index가 `$KIMI_CODE_HOME` 밖을 가리키면 거부한다. index는 Vendor 데이터다.
+- prompt·응답·tool payload·경로·Session ID는 Canonical 관찰과 출력에 넣지 않고 content는 hash만
+  남긴다. Raw는 `CONVERSATION_CONTENT`로 로컬 Blob Store에만 보관한다.
+- Rule Semantic extractor는 아직 없다. `analyze-rule`은 명시적 오류로 끝나고 Usage Report는
+  `NOT_SUPPORTED`로 표시한다.
+
+**미검증:** 자격증명이 없어 실제 Session을 만들지 못했다. 계약 test는 공식 문서 shape 기반
+합성 데이터이며 실제 `state.json`·`wire.jsonl` 표본으로는 확인하지 않았다.
