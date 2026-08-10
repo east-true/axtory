@@ -110,6 +110,9 @@ export interface VerificationRecord {
   provenance: Provenance;
   evidenceIds: readonly string[];
   note: string | null;
+  // Classifies the note only. The verification status itself is not user-authored text and stays
+  // when retention clears the note.
+  noteClassification: DataClassification;
   verifiedAt: string;
 }
 

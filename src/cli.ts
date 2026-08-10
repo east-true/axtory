@@ -207,7 +207,8 @@ async function main(args: readonly string[]): Promise<void> {
     };
     const result = await applyRetention({ dataDirectory: resolve(dataDirectory), policy });
     process.stdout.write(`AXtory retention completed: ${result.rawObservationsDeleted} raw observations, ` +
-      `${result.blobsDeleted} blobs and ${result.annotationsDeleted} user annotations deleted.\n`);
+      `${result.blobsDeleted} blobs and ${result.annotationsDeleted} user annotations deleted, ` +
+      `${result.verificationNotesCleared} verification notes cleared.\n`);
     return;
   }
   if (command === "annotate") {
@@ -275,6 +276,10 @@ async function main(args: readonly string[]): Promise<void> {
       !VERIFICATION_STATUSES.includes(status as typeof VERIFICATION_STATUSES[number])) {
       throw new Error("verify requires --data-dir, --analysis-record-id, supported --type, and supported --status");
     }
+    const noteClassification = option(args, "--note-classification") ?? "PERSONAL_DATA";
+    if (!DATA_CLASSIFICATIONS.includes(noteClassification as DataClassification)) {
+      throw new Error(`--note-classification must be one of ${DATA_CLASSIFICATIONS.join(", ")}`);
+    }
     const database = await openDataDatabase(dataDirectory);
     try {
       database.insertVerificationRecord({
@@ -282,6 +287,7 @@ async function main(args: readonly string[]): Promise<void> {
         verificationType: verificationType as typeof VERIFICATION_TYPES[number],
         status: status as typeof VERIFICATION_STATUSES[number], provenance: "USER_PROVIDED",
         evidenceIds: options(args, "--evidence-id"), note: option(args, "--note") ?? null,
+        noteClassification: noteClassification as DataClassification,
         verifiedAt: new Date().toISOString(),
       });
     } finally {
