@@ -9,7 +9,7 @@ import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import type { Derivation } from "../../core/records.js";
 import { AxtoryDatabase } from "../../core/storage.js";
-import { projectSession } from "../../projections/session.js";
+import { projectSession, type SessionProjection } from "../../projections/session.js";
 import type { CodexDiscovery } from "./discovery.js";
 import {
   CODEX_NORMALIZER_VERSION,
@@ -103,7 +103,7 @@ export async function collectCodexHistory(
       ...(options.pageSize ? { pageSize: options.pageSize } : {}),
       ...(options.maxPages ? { maxPages: options.maxPages } : {}),
     });
-    const projections = [];
+    const projections: SessionProjection[] = [];
     const revisionIds: string[] = [];
     const revisionsWithoutRawEvidence = new Set<string>();
     let revisionsCreated = 0;
@@ -190,7 +190,10 @@ export async function collectCodexHistory(
     });
     const records = analyzeFacts(analysisRunId, projections).map((record) => ({
       ...record,
-      evidenceStatus: record.evidenceIds.length > 0 && revisionsWithoutRawEvidence.size > 0
+      evidenceStatus: record.evidenceIds.some((id) => projections.some((projection) =>
+        revisionsWithoutRawEvidence.has(projection.sourceRevisionId) &&
+        [...projection.sessionEvidenceIds, ...projection.messageEvidenceIds, ...projection.toolInvocationEvidenceIds]
+          .includes(id)))
         ? "EVIDENCE_REMOVED" as const
         : record.evidenceStatus,
     }));
