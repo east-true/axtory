@@ -9,15 +9,17 @@ export type Provenance =
   | "USER_PROVIDED"
   | "HEURISTIC";
 export type ObservationKind = "EVENT" | "SNAPSHOT" | "CONTENT" | "METRIC" | "RELATION";
-export type DataClassification =
-  | "PUBLIC_METADATA"
-  | "LOCAL_METADATA"
-  | "IDENTIFYING_METADATA"
-  | "CONVERSATION_CONTENT"
-  | "SOURCE_CONTENT"
-  | "TOOL_CONTENT"
-  | "SECRET"
-  | "PERSONAL_DATA";
+export const DATA_CLASSIFICATIONS = [
+  "PUBLIC_METADATA",
+  "LOCAL_METADATA",
+  "IDENTIFYING_METADATA",
+  "CONVERSATION_CONTENT",
+  "SOURCE_CONTENT",
+  "TOOL_CONTENT",
+  "SECRET",
+  "PERSONAL_DATA",
+] as const;
+export type DataClassification = (typeof DATA_CLASSIFICATIONS)[number];
 export type TimeQuality =
   | "EXACT"
   | "SOURCE_REPORTED"
@@ -116,5 +118,6 @@ export interface UserAnnotation {
   targetType: "SOURCE_REVISION" | "ANALYSIS_RECORD";
   targetId: string;
   assertion: string;
+  dataClassification: DataClassification;
   createdAt: string;
 }

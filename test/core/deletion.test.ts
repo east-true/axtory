@@ -34,7 +34,8 @@ test("raw-only deletion removes unreferenced blobs and marks dependent evidence 
     const database = new AxtoryDatabase(run.databasePath);
     database.insertUserAnnotation({
       id: "annotation-1", targetType: "ANALYSIS_RECORD", targetId: analysis.id,
-      assertion: "This result was useful.", createdAt: "2026-08-02T00:00:00.000Z",
+      assertion: "This result was useful.", dataClassification: "PERSONAL_DATA",
+      createdAt: "2026-08-02T00:00:00.000Z",
     });
     database.insertVerificationRecord({
       id: "verification-1", analysisRecordId: analysis.id, verificationType: "HUMAN_ACCEPTANCE",
@@ -54,7 +55,7 @@ test("raw-only deletion removes unreferenced blobs and marks dependent evidence 
     });
     assert.deepEqual(result, {
       mode: "DELETE_RAW_ONLY", rawObservationsDeleted: 1, normalizedObservationsDeleted: 0,
-      analysisRunsDeleted: 0, blobsDeleted: 1, spoolEntriesDeleted: 0,
+      analysisRunsDeleted: 0, blobsDeleted: 1, spoolEntriesDeleted: 0, annotationsDeleted: 0,
     });
     await assert.rejects(access(join(directory, "blobs", raw.payload_reference)));
     const verifier = new DatabaseSync(run.databasePath, { readOnly: true });

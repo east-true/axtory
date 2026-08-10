@@ -10,7 +10,9 @@ import { runWalkingSkeleton } from "./core/pipeline.js";
 import { purgeAxtoryDataDirectory } from "./core/data-directory.js";
 import { applyRetention, executeSelectiveDeletion, type SelectiveDeletionMode } from "./core/deletion.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "./core/policy.js";
-import { VERIFICATION_STATUSES, VERIFICATION_TYPES } from "./core/records.js";
+import {
+  DATA_CLASSIFICATIONS, VERIFICATION_STATUSES, VERIFICATION_TYPES, type DataClassification,
+} from "./core/records.js";
 import { ensureAxtoryDataDirectory } from "./core/data-directory.js";
 import { AxtoryDatabase } from "./core/storage.js";
 import { runRuleSemanticAnalysis } from "./analysis/semantic-pipeline.js";
@@ -189,8 +191,8 @@ async function main(args: readonly string[]): Promise<void> {
       },
     };
     const result = await applyRetention({ dataDirectory: resolve(dataDirectory), policy });
-    process.stdout.write(`AXtory retention completed: ${result.rawObservationsDeleted} raw observations and ` +
-      `${result.blobsDeleted} blobs deleted.\n`);
+    process.stdout.write(`AXtory retention completed: ${result.rawObservationsDeleted} raw observations, ` +
+      `${result.blobsDeleted} blobs and ${result.annotationsDeleted} user annotations deleted.\n`);
     return;
   }
   if (command === "annotate") {
@@ -202,10 +204,15 @@ async function main(args: readonly string[]): Promise<void> {
       (targetType !== "SOURCE_REVISION" && targetType !== "ANALYSIS_RECORD")) {
       throw new Error("annotate requires --data-dir, --target-type, --target-id, and --assertion");
     }
+    const classification = option(args, "--classification") ?? "PERSONAL_DATA";
+    if (!DATA_CLASSIFICATIONS.includes(classification as DataClassification)) {
+      throw new Error(`--classification must be one of ${DATA_CLASSIFICATIONS.join(", ")}`);
+    }
     const database = await openDataDatabase(dataDirectory);
     try {
       database.insertUserAnnotation({
-        id: `annotation_${randomUUID()}`, targetType, targetId, assertion, createdAt: new Date().toISOString(),
+        id: `annotation_${randomUUID()}`, targetType, targetId, assertion,
+        dataClassification: classification as DataClassification, createdAt: new Date().toISOString(),
       });
     } finally {
       database.close();

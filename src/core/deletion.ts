@@ -26,6 +26,7 @@ export interface DeletionResult {
   analysisRunsDeleted: number;
   blobsDeleted: number;
   spoolEntriesDeleted: number;
+  annotationsDeleted: number;
 }
 
 interface InternalDeletionOptions {
@@ -34,6 +35,7 @@ interface InternalDeletionOptions {
   dataDirectory: string;
   rawObservationIds?: readonly string[];
   spoolDeletePredicate?: (envelope: SpoolEnvelope) => boolean;
+  annotationIds?: readonly string[];
   now: () => Date;
   randomId: () => string;
 }
@@ -105,6 +107,9 @@ async function executeInternalDeletion(
     spoolEntriesDeleted = await new BoundedSpool(join(options.dataDirectory, "spool"))
       .deleteWhere(options.spoolDeletePredicate);
   }
+  const annotationsDeleted = options.annotationIds === undefined
+    ? 0
+    : database.transaction(() => database.deleteAnnotations(options.annotationIds!));
   const result: DeletionResult = {
     mode: options.mode,
     rawObservationsDeleted,
@@ -112,6 +117,7 @@ async function executeInternalDeletion(
     analysisRunsDeleted,
     blobsDeleted,
     spoolEntriesDeleted,
+    annotationsDeleted,
   };
   database.recordDeletion({
     id: `deletion_${options.randomId()}`,
@@ -123,6 +129,7 @@ async function executeInternalDeletion(
     analysisRunsDeleted: result.analysisRunsDeleted,
     blobsDeleted: result.blobsDeleted,
     spoolEntriesDeleted: result.spoolEntriesDeleted,
+    annotationsDeleted: result.annotationsDeleted,
     executedAt: options.now().toISOString(),
   });
   database.finalizeSecureDeletion();
@@ -184,11 +191,14 @@ export async function applyRetention(options: {
       return database.rawObservationsEligibleForRetention(classification as DataClassification, cutoff);
     });
     const rawIds = unique(eligible.map((item) => item.id));
+    const annotationIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
+      database.annotationsEligibleForRetention(classification, cutoff)));
     return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
       mode: "RETENTION",
       target: { revisionIds: unique(eligible.map((item) => item.sourceRevisionId)) },
       dataDirectory,
       rawObservationIds: rawIds,
+      annotationIds,
       spoolDeletePredicate: (envelope) => {
         const classification: DataClassification = envelope.channel === "CLAUDE_HOOK"
           ? "TOOL_CONTENT"
