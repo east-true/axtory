@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { canonicalJson } from "./canonical-json.js";
 import type {
   AnalysisRecord,
+  DataClassification,
   NormalizedObservation,
   RawObservation,
   UserAnnotation,
@@ -46,15 +47,21 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 5) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 5) return;
+    if (version.user_version > 6) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 6) return;
+    if (version.user_version === 5) {
+      this.migrateToVersion6();
+      return;
+    }
     if (version.user_version === 4) {
       this.migrateToVersion5();
+      this.migrateToVersion6();
       return;
     }
     if (version.user_version === 3) {
       this.migrateToVersion4();
       this.migrateToVersion5();
+      this.migrateToVersion6();
       return;
     }
     if (version.user_version === 1) {
@@ -207,6 +214,7 @@ export class AxtoryDatabase {
     `);
     this.migrateToVersion4();
     this.migrateToVersion5();
+    this.migrateToVersion6();
   }
 
   private migrateToVersion4(): void {
@@ -249,6 +257,32 @@ export class AxtoryDatabase {
           FROM source_revisions
         ) WHERE revision_rank = 1;` : ""}
       PRAGMA user_version = 5;
+      COMMIT;
+    `);
+  }
+
+  // Schema 6 gives user-authored annotation text a DataClassification so retention can expire it,
+  // and records how many annotations a retention run removed. Existing rows predate any explicit
+  // choice, so they take the most restrictive default rather than a permissive one.
+  private migrateToVersion6(): void {
+    // A partially constructed legacy database may lack either table, so each ALTER is conditional
+    // on the table existing and on the column not already being present.
+    const needsColumn = (table: string, column: string): boolean => {
+      const present = this.db.prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      ).get(table);
+      if (!present) return false;
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      return !columns.some((item) => item.name === column);
+    };
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${needsColumn("user_annotations", "data_classification")
+        ? `ALTER TABLE user_annotations
+            ADD COLUMN data_classification TEXT NOT NULL DEFAULT 'PERSONAL_DATA';` : ""}
+      ${needsColumn("deletion_runs", "annotations_deleted")
+        ? `ALTER TABLE deletion_runs ADD COLUMN annotations_deleted INTEGER NOT NULL DEFAULT 0;` : ""}
+      PRAGMA user_version = 6;
       COMMIT;
     `);
   }
@@ -537,10 +571,25 @@ export class AxtoryDatabase {
     const targetTable = annotation.targetType === "SOURCE_REVISION" ? "source_revisions" : "analysis_records";
     const target = this.db.prepare(`SELECT id FROM ${targetTable} WHERE id = ?`).get(annotation.targetId);
     if (!target) throw new Error("user annotation target does not exist");
-    this.db.prepare(`INSERT INTO user_annotations(id, target_type, target_id, assertion, created_at)
-      VALUES (?, ?, ?, ?, ?)`).run(
-      annotation.id, annotation.targetType, annotation.targetId, annotation.assertion, annotation.createdAt,
+    this.db.prepare(`INSERT INTO user_annotations(
+      id, target_type, target_id, assertion, data_classification, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`).run(
+      annotation.id, annotation.targetType, annotation.targetId, annotation.assertion,
+      annotation.dataClassification, annotation.createdAt,
     );
+  }
+
+  annotationsEligibleForRetention(classification: string, createdBefore: string): string[] {
+    return (this.db.prepare(`SELECT id FROM user_annotations
+      WHERE data_classification = ? AND created_at < ? ORDER BY id`)
+      .all(classification, createdBefore) as Array<{ id: string }>).map((row) => row.id);
+  }
+
+  deleteAnnotations(annotationIds: readonly string[]): number {
+    if (annotationIds.length === 0) return 0;
+    const placeholders = annotationIds.map(() => "?").join(",");
+    return Number(this.db.prepare(`DELETE FROM user_annotations WHERE id IN (${placeholders})`)
+      .run(...annotationIds).changes);
   }
 
   // User-authored text has no read path other than this one: the usage report deliberately exports
@@ -556,12 +605,13 @@ export class AxtoryDatabase {
       conditions.push("target_id = ?");
       parameters.push(filter.targetId);
     }
-    const rows = this.db.prepare(`SELECT id, target_type, target_id, assertion, created_at
+    const rows = this.db.prepare(`SELECT id, target_type, target_id, assertion, data_classification, created_at
       FROM user_annotations ${conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`}
       ORDER BY created_at, id`).all(...parameters) as Array<Record<string, string>>;
     return rows.map((row) => ({
       id: row.id!, targetType: row.target_type as UserAnnotation["targetType"],
-      targetId: row.target_id!, assertion: row.assertion!, createdAt: row.created_at!,
+      targetId: row.target_id!, assertion: row.assertion!,
+      dataClassification: row.data_classification as DataClassification, createdAt: row.created_at!,
     }));
   }
 
@@ -711,15 +761,17 @@ export class AxtoryDatabase {
   recordDeletion(input: {
     id: string; mode: string; target: unknown; status: "COMPLETED" | "FAILED";
     rawObservationsDeleted: number; normalizedObservationsDeleted: number;
-    analysisRunsDeleted: number; blobsDeleted: number; spoolEntriesDeleted: number; executedAt: string;
+    analysisRunsDeleted: number; blobsDeleted: number; spoolEntriesDeleted: number;
+    annotationsDeleted: number; executedAt: string;
   }): void {
     this.db.prepare(`INSERT INTO deletion_runs(
       id, mode, target_json, status, raw_observations_deleted,
-      normalized_observations_deleted, analysis_runs_deleted, blobs_deleted, spool_entries_deleted, executed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      normalized_observations_deleted, analysis_runs_deleted, blobs_deleted, spool_entries_deleted,
+      annotations_deleted, executed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.id, input.mode, canonicalJson(input.target), input.status, input.rawObservationsDeleted,
       input.normalizedObservationsDeleted, input.analysisRunsDeleted, input.blobsDeleted,
-      input.spoolEntriesDeleted, input.executedAt,
+      input.spoolEntriesDeleted, input.annotationsDeleted, input.executedAt,
     );
   }
 

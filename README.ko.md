@@ -131,9 +131,22 @@ node dist/src/cli.js list-annotations --data-dir .local/axtory-claude \
   --target-type SOURCE_REVISION --target-id revision_...
 ```
 
-stdout으로만 출력하며 파일을 쓰지 않고 Export Run도 남기지 않습니다. 사용자가 작성한
-텍스트에는 아직 DataClassification이 없어 Retention 규칙으로 만료되지 않습니다. 제거하려면
-대상 자체를 삭제해야 합니다.
+stdout으로만 출력하며 파일을 쓰지 않고 Export Run도 남기지 않습니다.
+
+각 Annotation은 DataClassification을 가집니다. `--classification`으로 지정하지 않으면
+`PERSONAL_DATA`이며, 따라서 Annotation 텍스트도 다른 로컬 Content와 동일한 기준으로
+Retention 만료 대상이 됩니다.
+
+```sh
+node dist/src/cli.js annotate --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_... \
+  --assertion "수동으로 했다면 약 4시간" --classification PERSONAL_DATA
+node dist/src/cli.js retain --data-dir .local/axtory-claude \
+  --classification PERSONAL_DATA --days 30
+```
+
+Verification Note에는 별도 분류가 없어 Retention으로 만료되지 않습니다. 검증 대상 Analysis
+Record가 삭제될 때 함께 제거됩니다.
 
 ## 추가 AI Source
 
@@ -297,6 +310,28 @@ fact를 Claude Session 리포트와 함께 보려면 snapshot과 live Source를 
 AXtory는 Agent를 실행하지 않으며, 업무를 자동 그룹화하거나 ROI를 추정하거나 AI 기여
 백분율을 부여하지 않습니다. Hook·OpenTelemetry를 자동 활성화하지 않고, 의미 분석 model
 provider나 Public Connector Plugin SPI도 제공하지 않습니다.
+
+### 그 수치가 없는 이유와 대안
+
+AI 기여 백분율, ROI, 시간 절감 추정치가 빠진 이유는 하나로 모입니다. 셋 다 일어나지 않은
+작업의 기준선을 필요로 하는데, 로컬 관찰자는 그 대안을 읽을 수 없습니다. Vendor가 보고하는
+비용에는 공개된 가격표라는 근거가 있어 AXtory가 관측값으로 그대로 전달합니다. 반면 "Agent
+없이 했다면 얼마나 걸렸는가"에는 그런 Source가 없으며, 이를 지어내는 것은 알 수 없는 값을
+명시적으로 알 수 없는 상태로 두는 규칙과 어긋납니다.
+
+이 질문은 가정이 드러나고 그 가정을 세운 사람에게 귀속되는 자리, 즉 AXtory 밖에서
+모델링하세요. 리포트는 JSON으로 나가며 계산된 사용량 합계와 추론된 의미 Assertion을 분리하고,
+없는 값을 0이 아니라 Availability로 표시하며, 수치가 입증하지 않는 것을 `limitations`에
+나열합니다.
+
+밖에서 세운 모델을 근거에 가깝게 유지하는 두 가지 습관이 있습니다.
+
+- 기준선을 나중에 복원하지 말고 작업이 생생할 때 기록하세요. `annotate`는 해당 Revision에
+  주장을 저장하고 `list-annotations`가 그것을 되읽습니다. 이는 사용자의 주장으로 남으며
+  AXtory가 계산 결과에 섞지 않습니다.
+- 한 기간을 추측과 비교하지 말고 실제로 관측한 기간끼리 비교하세요. `--since`/`--until`을
+  달리한 `report-usage` 두 번이면 측정된 분포 두 개를 얻습니다. 대비는 실재하지만, 그것을
+  Agent 덕분으로 돌리는 것은 도구가 아니라 사용자의 추론입니다.
 
 ## 기여 및 보안
 

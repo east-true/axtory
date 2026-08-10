@@ -132,8 +132,21 @@ node dist/src/cli.js list-annotations --data-dir .local/axtory-claude \
   --target-type SOURCE_REVISION --target-id revision_...
 ```
 
-It prints to stdout, writes no file, and records no export run. User-authored text currently
-carries no DataClassification, so retention rules do not expire it; delete its target to remove it.
+It prints to stdout, writes no file, and records no export run.
+
+Each annotation carries a DataClassification, `PERSONAL_DATA` unless `--classification` selects
+another, so retention expires annotation text on the same terms as any other local content:
+
+```sh
+node dist/src/cli.js annotate --data-dir .local/axtory-claude \
+  --target-type SOURCE_REVISION --target-id revision_... \
+  --assertion "manual baseline: about four hours" --classification PERSONAL_DATA
+node dist/src/cli.js retain --data-dir .local/axtory-claude \
+  --classification PERSONAL_DATA --days 30
+```
+
+A verification note has no classification of its own and retention does not expire it; it is removed
+when the analysis record it verifies is deleted.
 
 ## Additional AI sources
 
@@ -294,6 +307,28 @@ does not merge independent SQLite data directories during reporting.
 AXtory does not run agents, automatically group work, estimate ROI, assign an AI contribution
 percentage, automatically enable hooks or OpenTelemetry, bundle a semantic model provider, or
 provide a public connector plugin SPI.
+
+### Why those numbers are missing, and what to do instead
+
+An AI contribution percentage, an ROI figure, and a time-saving estimate share one cause for their
+absence: each needs a baseline for work that never happened, and a local observer cannot read that
+alternative. Vendor-reported cost has a published price list behind it, so AXtory passes it through
+as an observed value. "How long this would have taken without an agent" has no such source, and
+inventing one would contradict the rule that keeps an unknown value explicitly unknown.
+
+Model those questions outside AXtory, where the assumptions stay visible and belong to whoever
+states them. A report exports as JSON that keeps calculated usage totals separate from inferred
+semantic assertions, marks missing data with Availability rather than zero, and lists in
+`limitations` what the figures do not establish.
+
+Two habits keep that outside model closer to evidence:
+
+- Record a baseline while the work is fresh instead of reconstructing it afterwards. `annotate`
+  stores the claim against the revision it belongs to, and `list-annotations` reads it back. It
+  stays your assertion; AXtory never folds it into a computed result.
+- Compare periods you actually observed instead of measuring one against a guess. Two `report-usage`
+  runs over different `--since`/`--until` windows produce two measured distributions. The contrast
+  is real, but attributing it to the agent remains your inference rather than the tool's.
 
 ## Contributing and security
 
