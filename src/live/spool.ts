@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { link, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalJson, sha256, stableId } from "../core/canonical-json.js";
@@ -17,7 +17,7 @@ export interface SpoolEnvelope {
   states: readonly { state: SpoolState; at: string; reason?: string }[];
 }
 
-async function atomicWrite(path: string, body: string): Promise<void> {
+async function writeDurably(path: string, body: string): Promise<string> {
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
   try {
@@ -26,7 +26,31 @@ async function atomicWrite(path: string, body: string): Promise<void> {
   } finally {
     await handle.close();
   }
-  await rename(temporary, path);
+  return temporary;
+}
+
+async function atomicWrite(path: string, body: string): Promise<void> {
+  await rename(await writeDurably(path, body), path);
+}
+
+/**
+ * Create the entry only if nothing holds its name yet.
+ *
+ * `rename` replaces its destination, so two concurrent receiver requests both passed the existence
+ * check and the second silently overwrote the first while the client was told 200. `link` fails
+ * with EEXIST instead, which is what a duplicate must report.
+ */
+async function atomicCreate(path: string, body: string): Promise<boolean> {
+  const temporary = await writeDurably(path, body);
+  try {
+    await link(temporary, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return false;
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 export class BoundedSpool {
@@ -80,13 +104,7 @@ export class BoundedSpool {
     if (entries.length >= this.limits.maximumItems || bytes + Buffer.byteLength(body) > this.limits.maximumBytes) {
       throw new Error("live spool capacity exceeded");
     }
-    try {
-      await atomicWrite(target, body);
-      return { id, duplicate: false };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") return { id, duplicate: true };
-      throw error;
-    }
+    return { id, duplicate: !await atomicCreate(target, body) };
   }
 
   async listPending(): Promise<SpoolEnvelope[]> {

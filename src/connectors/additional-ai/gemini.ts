@@ -34,9 +34,14 @@ export class GeminiCliSourceApi implements AdditionalAiSourceApi {
       provider: this.provider, scopeIdentity: this.scopeIdentity, externalId,
       createdAt: null, sourceUpdatedAt: null,
     }));
+    // The CLI prints how many sessions it has. Parsing fewer ids than it declared means the list
+    // format changed for some rows, so the enumeration is a subset and must not read as complete.
+    const unparsedSessions = declaredCount !== null && declaredCount > unique.length;
     return {
       items,
-      coverage: unique.length > options.limit ? "PARTIAL_LIMIT" as const : "METADATA_ONLY" as const,
+      coverage: unique.length > options.limit || unparsedSessions
+        ? "PARTIAL_LIMIT" as const
+        : "METADATA_ONLY" as const,
     };
   }
 

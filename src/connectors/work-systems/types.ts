@@ -1,3 +1,5 @@
+import { isoTimestamp } from "../../core/time.js";
+
 export const WORK_PROVIDERS = ["GITHUB", "GITLAB", "JIRA", "LINEAR"] as const;
 export type WorkProvider = (typeof WORK_PROVIDERS)[number];
 
@@ -87,11 +89,14 @@ export function safeState(value: unknown): string {
 }
 
 export function timestamp(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const milliseconds = Date.parse(value);
-  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+  return isoTimestamp(value);
 }
 
+/**
+ * Read the Vendor's own stable id. Never substitute a different identifier namespace as a fallback:
+ * the returned value keys the SourceObject, so an artifact that resolved to `id` on one run and to
+ * a project-scoped number or key on another would split into two SourceObjects and be counted twice.
+ */
 export function identifier(value: unknown, label: string): string {
   if ((typeof value !== "string" && typeof value !== "number") || String(value).length === 0 ||
       String(value).length > 256) {

@@ -15,6 +15,7 @@ import { ensureAxtoryDataDirectory } from "./data-directory.js";
 import { applyOutputPolicy, OUTPUT_POLICY_VERSION, type SkeletonOutput, writeJsonAtomically } from "./output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "./policy.js";
 import { AxtoryDatabase } from "./storage.js";
+import { isoTimestamp } from "./time.js";
 
 export interface WalkingSkeletonOptions {
   fixturePath: string;
@@ -47,6 +48,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
     }
     const bytes = await readFile(options.fixturePath);
     const fixture = parseClaudeHistoryFixture(bytes);
+    const sourceModifiedAt = isoTimestamp(fixture.sourceModifiedAt);
     const blob = await new ContentAddressedBlobStore(join(dataDirectory, "blobs")).put(bytes);
     const sourceObjectId = stableId("source", { sourceType: "FIXTURE", key: fixture.sourceObjectKey });
     const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
@@ -56,7 +58,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
       sourceObjectId,
       contentHash: blob.digest,
       collectedAt: timestamp(),
-      sourceModifiedAt: fixture.sourceModifiedAt ?? null,
+      sourceModifiedAt,
       normalizerVersion: FIXTURE_NORMALIZER_VERSION,
       payloadReference: blob.relativePath,
     });
@@ -69,7 +71,7 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
         dataClassification: "CONVERSATION_CONTENT",
         payloadReference: blob.relativePath,
         observedAt: timestamp(),
-        sourceModifiedAt: fixture.sourceModifiedAt ?? null,
+        sourceModifiedAt,
       });
       database.insertObservations(normalizeClaudeHistoryFixture(fixture, revisionId));
       database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());

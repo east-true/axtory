@@ -63,7 +63,7 @@ export class JiraWorkSystemApi implements WorkSystemApi {
         : {};
       const sourceState = safeState(category.key ?? status.name);
       const canonicalStatus = statusCategory(category.key);
-      const externalId = identifier(item.id ?? item.key, "issue id");
+      const externalId = identifier(item.id, "issue id");
       const createdAt = timestamp(fields.created);
       const updatedAt = timestamp(fields.updated);
       const completedAt = timestamp(fields.resolutiondate);

@@ -451,6 +451,33 @@ export async function generateUsageReport(options: {
   const databasePath = join(dataDirectory, "axtory.sqlite3");
 
   let database = new AxtoryDatabase(databasePath);
+  try {
+    return await buildUsageReport(database, (reopened) => { database = reopened; }, {
+      ...options, dataDirectory, databasePath, since, until, sourceTypes, sourceTypeSet, now, randomId,
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function buildUsageReport(
+  initialDatabase: AxtoryDatabase,
+  onReopen: (database: AxtoryDatabase) => void,
+  options: {
+    jsonOutputPath?: string | undefined;
+    dataDirectory: string;
+    databasePath: string;
+    since: string | null;
+    until: string | null;
+    sourceTypes: readonly string[];
+    sourceTypeSet: ReadonlySet<string>;
+    allowConversationContent?: boolean;
+    now: () => Date;
+    randomId: () => string;
+  },
+): Promise<UsageReportOutput> {
+  const { since, until, sourceTypes, sourceTypeSet, dataDirectory, databasePath, now, randomId } = options;
+  let database = initialDatabase;
   let inputs = loadSessionInputs(database, sourceTypeSet);
   let selected = selectedSessions(inputs, since, until);
   const semanticInputs = selected.sessions.filter(supportsRuleSemantics);
@@ -480,13 +507,18 @@ export async function generateUsageReport(options: {
         "RULE_SEMANTIC_ANALYZER", RULE_SEMANTIC_ANALYZER_VERSION, [input.revisionId],
       ) === null);
     database.close();
-    for (const input of missing) {
-      await runRuleSemanticAnalysis({
-        dataDirectory, revisionId: input.revisionId, allowConversationContent: true,
-        now, randomId: () => `usage-semantic-${randomId()}`,
-      });
+    try {
+      for (const input of missing) {
+        await runRuleSemanticAnalysis({
+          dataDirectory, revisionId: input.revisionId, allowConversationContent: true,
+          now, randomId: () => `usage-semantic-${randomId()}`,
+        });
+      }
+    } finally {
+      // Hand the reopened handle back to the caller so its finally block always closes the live one.
+      database = new AxtoryDatabase(databasePath);
+      onReopen(database);
     }
-    database = new AxtoryDatabase(databasePath);
     inputs = loadSessionInputs(database, sourceTypeSet);
     selected = selectedSessions(inputs, since, until);
   }
@@ -919,8 +951,6 @@ export async function generateUsageReport(options: {
   } catch (error) {
     database.finishAnalysisRun(analysisRunId, "FAILED", now().toISOString(), "ANALYSIS_ERROR");
     throw error;
-  } finally {
-    database.close();
   }
 }
 

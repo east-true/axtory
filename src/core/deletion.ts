@@ -136,6 +136,7 @@ async function executeInternalDeletion(
     blobsDeleted: result.blobsDeleted,
     spoolEntriesDeleted: result.spoolEntriesDeleted,
     annotationsDeleted: result.annotationsDeleted,
+    verificationNotesCleared: result.verificationNotesCleared,
     executedAt: options.now().toISOString(),
   });
   database.finalizeSecureDeletion();

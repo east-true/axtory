@@ -78,6 +78,9 @@ export class CodexAppServerClient implements CodexThreadApi {
     this.process.once("error", () => this.failAll("Codex App Server could not be started"));
     this.process.once("exit", () => this.failAll("Codex App Server exited before completing the request"));
     this.initialization = this.initialize();
+    // A spawn failure rejects this promise before any caller can await it. Marking it handled here
+    // keeps the rejection reportable at the call site instead of crashing the process.
+    void this.initialization.catch(() => undefined);
   }
 
   private write(message: unknown): void {
@@ -146,7 +149,12 @@ export class CodexAppServerClient implements CodexThreadApi {
       return;
     }
     if (message.method && message.id !== undefined) {
-      this.write({ id: message.id, error: { code: -32601, message: "AXtory rejects server-initiated requests" } });
+      try {
+        this.write({ id: message.id, error: { code: -32601, message: "AXtory rejects server-initiated requests" } });
+      } catch {
+        // Buffered stdout can still deliver a server-initiated request after stdin closed. Refusing
+        // it is best effort; throwing out of this stream listener would be an uncaught exception.
+      }
       return;
     }
     if (typeof message.id !== "number") return;

@@ -72,6 +72,10 @@ export async function startLiveReceiver(options: {
   let requestCount = 0;
   const server: Server = createServer(async (request, response) => {
     try {
+      // Authorize before metering. Any local process can reach loopback, so counting rejected
+      // requests against the shared budget would let unrelated traffic exhaust it and make Claude's
+      // hook posts fail non-blockingly, silently dropping live events. A 401 costs no spool work.
+      if (!isAuthorized(request.headers.authorization, token)) return send(response, 401, { error: "unauthorized" });
       const current = now().getTime();
       if (current - windowStarted >= 60_000) {
         windowStarted = current;
@@ -79,7 +83,6 @@ export async function startLiveReceiver(options: {
       }
       requestCount += 1;
       if (requestCount > maximumRequestsPerMinute) return send(response, 429, { error: "rate_limit" });
-      if (!isAuthorized(request.headers.authorization, token)) return send(response, 401, { error: "unauthorized" });
       const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       if (request.method === "GET" && path === "/health") return send(response, 200, { status: "ok" });
       const channel = request.method === "POST" ? channelFor(path) : null;

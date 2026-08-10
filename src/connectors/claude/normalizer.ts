@@ -1,5 +1,6 @@
 import { canonicalJson, sha256, stableId } from "../../core/canonical-json.js";
 import type { NormalizedObservation } from "../../core/records.js";
+import { isoFromEpoch, isoTimestamp } from "../../core/time.js";
 import type { ClaudeSessionInfo, ClaudeSessionMessage } from "./history-api.js";
 
 export const CLAUDE_NORMALIZER_VERSION = "claude-official-history/1";
@@ -11,10 +12,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function sourceTimestamp(item: ClaudeSessionMessage): string | null {
-  const timestamp = item.timestamp;
-  if (typeof timestamp !== "string") return null;
-  const milliseconds = Date.parse(timestamp);
-  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+  return isoTimestamp(item.timestamp);
 }
 
 function safeToolName(value: unknown): string {
@@ -24,9 +22,7 @@ function safeToolName(value: unknown): string {
 }
 
 function epochTimestamp(value: unknown): string | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  return isoFromEpoch(value, "MILLISECONDS");
 }
 
 export function normalizeClaudeSession(

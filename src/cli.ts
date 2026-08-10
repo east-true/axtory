@@ -52,9 +52,21 @@ const SOURCE_TYPE_NAMES: Readonly<Record<string, string>> = {
   cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER",
 };
 
+/**
+ * Read a flag's value, refusing a flag that was given without one.
+ *
+ * `--since` at the end of the line, or `--data-dir --json-out out.json`, would otherwise hand back
+ * `undefined` or the following flag. Both produce a confidently wrong answer: the first silently
+ * drops the time bound the user asked for, and the second reports on a data directory literally
+ * named `--json-out`. A value starting with `--` is treated as the next flag; a single leading `-`
+ * still passes so free text such as an annotation can begin with a dash.
+ */
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  return value;
 }
 
 function requestedSourceTypes(args: readonly string[]): string[] {
@@ -66,7 +78,12 @@ function requestedSourceTypes(args: readonly string[]): string[] {
 }
 
 function options(args: readonly string[], name: string): string[] {
-  return args.flatMap((value, index) => value === name && args[index + 1] ? [args[index + 1]!] : []);
+  return args.flatMap((value, index) => {
+    if (value !== name) return [];
+    const next = args[index + 1];
+    if (next === undefined || next.startsWith("--")) throw new Error(`${name} requires a value`);
+    return [next];
+  });
 }
 
 function positiveInteger(value: string, name: string): number {

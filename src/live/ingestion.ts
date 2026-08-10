@@ -126,7 +126,10 @@ export async function ingestLiveSpool(options: {
       policyVersion: OUTPUT_POLICY_VERSION, recordCount: records.length,
       classifications: ["PUBLIC_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: timestamp(),
     });
-    database.finishCollectionRun(collectionRunId, failed === 0 ? "COMPLETED" : "FAILED", timestamp(),
+    // The run completed its pass over the spool. Envelopes that failed never produced a revision,
+    // so the run stays COMPLETED and keeps the successfully ingested revisions eligible as heads;
+    // failing the whole run would hide that evidence from every later report.
+    database.finishCollectionRun(collectionRunId, "COMPLETED", timestamp(),
       failed === 0 ? undefined : "PARTIAL_INGESTION");
     return summary;
   } catch (error) {

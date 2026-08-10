@@ -178,6 +178,8 @@ export async function collectAdditionalAiSource(
       ? "PARTIAL_LIMIT"
       : listed.coverage === "METADATA_ONLY" && viewCoverages.length === 0
         ? "METADATA_ONLY"
+      : viewCoverages.includes("PARTIAL_LIMIT")
+        ? "PARTIAL_LIMIT"
       : viewCoverages.includes("PARTIAL_SOURCE_CHANGED")
         ? "PARTIAL_SOURCE_CHANGED"
         : viewCoverages.length > 0 && viewCoverages.every((value) => value === "METADATA_ONLY")

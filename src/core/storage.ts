@@ -47,21 +47,28 @@ export class AxtoryDatabase {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 8) throw new Error(`database schema ${version.user_version} is newer than supported`);
-    if (version.user_version === 8) return;
+    if (version.user_version > 9) throw new Error(`database schema ${version.user_version} is newer than supported`);
+    if (version.user_version === 9) return;
+    if (version.user_version === 8) {
+      this.migrateToVersion9();
+      return;
+    }
     if (version.user_version === 7) {
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 6) {
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 5) {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 4) {
@@ -69,6 +76,7 @@ export class AxtoryDatabase {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 3) {
@@ -77,6 +85,7 @@ export class AxtoryDatabase {
       this.migrateToVersion6();
       this.migrateToVersion7();
       this.migrateToVersion8();
+      this.migrateToVersion9();
       return;
     }
     if (version.user_version === 1) {
@@ -232,6 +241,7 @@ export class AxtoryDatabase {
     this.migrateToVersion6();
     this.migrateToVersion7();
     this.migrateToVersion8();
+    this.migrateToVersion9();
   }
 
   private migrateToVersion4(): void {
@@ -328,6 +338,36 @@ export class AxtoryDatabase {
       PRAGMA user_version = 8;
       COMMIT;
     `);
+  }
+
+  // Schema 9 records cleared verification notes in the deletion audit. Retention already cleared
+  // them and reported the count to the caller, but the durable row under-reported what ran.
+  private migrateToVersion9(): void {
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      ${this.needsColumn("deletion_runs", "verification_notes_cleared")
+        ? `ALTER TABLE deletion_runs ADD COLUMN verification_notes_cleared INTEGER NOT NULL DEFAULT 0;` : ""}
+      PRAGMA user_version = 9;
+      COMMIT;
+    `);
+  }
+
+  /**
+   * SQLite rejects a statement carrying more than 32766 host parameters, so an `IN (?, ?, …)` list
+   * built from caller-supplied ids fails outright once a database holds enough evidence. Splitting
+   * the list keeps those lookups working at any size. A row can match more than one batch, so every
+   * caller that could see the same row twice deduplicates by row id rather than summing batches.
+   */
+  private static readonly MAXIMUM_QUERY_PARAMETERS = 20_000;
+
+  private batches(values: readonly string[]): string[][] {
+    const size = AxtoryDatabase.MAXIMUM_QUERY_PARAMETERS;
+    if (values.length <= size) return [[...values]];
+    const output: string[][] = [];
+    for (let start = 0; start < values.length; start += size) {
+      output.push(values.slice(start, start + size));
+    }
+    return output;
   }
 
   transaction<T>(operation: () => T): T {
@@ -573,10 +613,14 @@ export class AxtoryDatabase {
 
   clearVerificationNotes(verificationIds: readonly string[]): number {
     if (verificationIds.length === 0) return 0;
-    const placeholders = verificationIds.map(() => "?").join(",");
-    return Number(this.db.prepare(
-      `UPDATE verification_records SET note = NULL WHERE note IS NOT NULL AND id IN (${placeholders})`,
-    ).run(...verificationIds).changes);
+    let cleared = 0;
+    for (const batch of this.batches(verificationIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      cleared += Number(this.db.prepare(
+        `UPDATE verification_records SET note = NULL WHERE note IS NOT NULL AND id IN (${placeholders})`,
+      ).run(...batch).changes);
+    }
+    return cleared;
   }
 
   verificationRecordsForEvidenceIds(evidenceIds: readonly string[]): Array<{
@@ -585,18 +629,20 @@ export class AxtoryDatabase {
     analysisEvidenceStatus: AnalysisRecord["evidenceStatus"];
   }> {
     if (evidenceIds.length === 0) return [];
-    const placeholders = evidenceIds.map(() => "?").join(",");
-    const rows = this.db.prepare(`SELECT vr.verification_type, vr.status, ar.evidence_status
-      FROM verification_records vr
-      JOIN analysis_records ar ON ar.id = vr.analysis_record_id
-      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
-      WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))
-      ORDER BY vr.verified_at, vr.id`).all(...evidenceIds) as Array<{
-        verification_type: string;
-        status: string;
-        evidence_status: string;
-      }>;
-    return rows.map((row) => ({
+    const matched = new Map<string, { verification_type: string; status: string; evidence_status: string }>();
+    for (const batch of this.batches(evidenceIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      const rows = this.db.prepare(`SELECT vr.id, vr.verification_type, vr.status, ar.evidence_status
+        FROM verification_records vr
+        JOIN analysis_records ar ON ar.id = vr.analysis_record_id
+        JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
+        WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))
+        ORDER BY vr.verified_at, vr.id`).all(...batch) as Array<{
+          id: string; verification_type: string; status: string; evidence_status: string;
+        }>;
+      for (const row of rows) matched.set(row.id, row);
+    }
+    return [...matched.values()].map((row) => ({
       verificationType: row.verification_type as VerificationType,
       status: row.status as VerificationStatus,
       analysisEvidenceStatus: row.evidence_status as AnalysisRecord["evidenceStatus"],
@@ -608,22 +654,28 @@ export class AxtoryDatabase {
     analysisRecord: number;
   } {
     let sourceRevision = 0;
-    if (revisionIds.length > 0) {
-      const placeholders = revisionIds.map(() => "?").join(",");
+    for (const batch of this.batches(revisionIds)) {
+      if (batch.length === 0) continue;
+      const placeholders = batch.map(() => "?").join(",");
+      // An annotation targets exactly one revision, so batches stay disjoint here.
       const row = this.db.prepare(`SELECT COUNT(*) AS count FROM user_annotations
         WHERE target_type = 'SOURCE_REVISION' AND target_id IN (${placeholders})`)
-        .get(...revisionIds) as { count: number };
-      sourceRevision = row.count;
+        .get(...batch) as { count: number };
+      sourceRevision += row.count;
     }
     if (evidenceIds.length === 0) return { sourceRevision, analysisRecord: 0 };
-    const placeholders = evidenceIds.map(() => "?").join(",");
-    const row = this.db.prepare(`SELECT COUNT(*) AS count
-      FROM user_annotations ua
-      JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
-      JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
-      WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))`)
-      .get(...evidenceIds) as { count: number };
-    return { sourceRevision, analysisRecord: row.count };
+    const annotationIds = new Set<string>();
+    for (const batch of this.batches(evidenceIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      const rows = this.db.prepare(`SELECT ua.id
+        FROM user_annotations ua
+        JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
+        JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
+        WHERE EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))`)
+        .all(...batch) as Array<{ id: string }>;
+      for (const row of rows) annotationIds.add(row.id);
+    }
+    return { sourceRevision, analysisRecord: annotationIds.size };
   }
 
   insertUserAnnotation(annotation: UserAnnotation): void {
@@ -653,9 +705,13 @@ export class AxtoryDatabase {
 
   deleteAnnotations(annotationIds: readonly string[]): number {
     if (annotationIds.length === 0) return 0;
-    const placeholders = annotationIds.map(() => "?").join(",");
-    return Number(this.db.prepare(`DELETE FROM user_annotations WHERE id IN (${placeholders})`)
-      .run(...annotationIds).changes);
+    let deleted = 0;
+    for (const batch of this.batches(annotationIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      deleted += Number(this.db.prepare(`DELETE FROM user_annotations WHERE id IN (${placeholders})`)
+        .run(...batch).changes);
+    }
+    return deleted;
   }
 
   // User-authored text has no read path other than this one: the usage report deliberately exports
@@ -689,24 +745,32 @@ export class AxtoryDatabase {
   declaredBaselinesForScope(revisionIds: readonly string[], evidenceIds: readonly string[]): Array<{
     baselineMinutes: number; dataClassification: DataClassification;
   }> {
-    const rows: Array<Record<string, string | number>> = [];
-    if (revisionIds.length > 0) {
-      const placeholders = revisionIds.map(() => "?").join(",");
-      rows.push(...this.db.prepare(`SELECT baseline_minutes, data_classification FROM user_annotations
+    // A baseline is a total, so each annotation must contribute exactly once even when its record
+    // is reached through several evidence ids spread over different batches.
+    const rows = new Map<string, Record<string, string | number>>();
+    for (const batch of this.batches(revisionIds)) {
+      if (batch.length === 0) continue;
+      const placeholders = batch.map(() => "?").join(",");
+      for (const row of this.db.prepare(`SELECT id, baseline_minutes, data_classification FROM user_annotations
         WHERE target_type = 'SOURCE_REVISION' AND baseline_minutes IS NOT NULL
-          AND target_id IN (${placeholders})`).all(...revisionIds) as Array<Record<string, string | number>>);
+          AND target_id IN (${placeholders})`).all(...batch) as Array<Record<string, string | number>>) {
+        rows.set(String(row.id), row);
+      }
     }
-    if (evidenceIds.length > 0) {
-      const placeholders = evidenceIds.map(() => "?").join(",");
-      rows.push(...this.db.prepare(`SELECT ua.baseline_minutes, ua.data_classification
+    for (const batch of this.batches(evidenceIds)) {
+      if (batch.length === 0) continue;
+      const placeholders = batch.map(() => "?").join(",");
+      for (const row of this.db.prepare(`SELECT ua.id, ua.baseline_minutes, ua.data_classification
         FROM user_annotations ua
         JOIN analysis_records ar ON ar.id = ua.target_id AND ua.target_type = 'ANALYSIS_RECORD'
         JOIN analysis_runs run ON run.id = ar.analysis_run_id AND run.status = 'COMPLETED'
         WHERE ua.baseline_minutes IS NOT NULL
           AND EXISTS (SELECT 1 FROM json_each(ar.evidence_ids_json) WHERE value IN (${placeholders}))`)
-        .all(...evidenceIds) as Array<Record<string, string | number>>);
+        .all(...batch) as Array<Record<string, string | number>>) {
+        rows.set(String(row.id), row);
+      }
     }
-    return rows.map((row) => ({
+    return [...rows.values()].map((row) => ({
       baselineMinutes: Number(row.baseline_minutes),
       dataClassification: row.data_classification as DataClassification,
     }));
@@ -756,12 +820,16 @@ export class AxtoryDatabase {
     id: string; sourceRevisionId: string; payloadReference: string;
   }> {
     if (revisionIds.length === 0) return [];
-    const placeholders = revisionIds.map(() => "?").join(",");
-    return this.db.prepare(`SELECT id, source_revision_id, payload_reference FROM raw_observations
-      WHERE source_revision_id IN (${placeholders}) ORDER BY id`).all(...revisionIds).map((row) => {
-        const item = row as Record<string, string>;
-        return { id: item.id!, sourceRevisionId: item.source_revision_id!, payloadReference: item.payload_reference! };
-      });
+    return this.batches(revisionIds).flatMap((batch) => {
+      const placeholders = batch.map(() => "?").join(",");
+      return this.db.prepare(`SELECT id, source_revision_id, payload_reference FROM raw_observations
+        WHERE source_revision_id IN (${placeholders})`).all(...batch).map((row) => {
+          const item = row as Record<string, string>;
+          return {
+            id: item.id!, sourceRevisionId: item.source_revision_id!, payloadReference: item.payload_reference!,
+          };
+        });
+    }).sort((left, right) => left.id.localeCompare(right.id));
   }
 
   rawObservationForRevision(revisionId: string): {
@@ -783,9 +851,13 @@ export class AxtoryDatabase {
 
   deleteRawObservations(rawObservationIds: readonly string[]): number {
     if (rawObservationIds.length === 0) return 0;
-    const placeholders = rawObservationIds.map(() => "?").join(",");
-    return Number(this.db.prepare(`DELETE FROM raw_observations WHERE id IN (${placeholders})`)
-      .run(...rawObservationIds).changes);
+    let deleted = 0;
+    for (const batch of this.batches(rawObservationIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      deleted += Number(this.db.prepare(`DELETE FROM raw_observations WHERE id IN (${placeholders})`)
+        .run(...batch).changes);
+    }
+    return deleted;
   }
 
   markEvidenceRemoved(evidenceIds: readonly string[]): number {
@@ -803,36 +875,51 @@ export class AxtoryDatabase {
     return changed;
   }
 
+  private analysisRunIdsForInputRevisions(revisionIds: readonly string[]): string[] {
+    const runIds = new Set<string>();
+    for (const batch of this.batches(revisionIds)) {
+      if (batch.length === 0) continue;
+      const placeholders = batch.map(() => "?").join(",");
+      const rows = this.db.prepare(`SELECT id FROM analysis_runs
+        WHERE EXISTS (SELECT 1 FROM json_each(analysis_runs.input_revision_ids_json)
+          WHERE value IN (${placeholders}))`).all(...batch) as Array<{ id: string }>;
+      for (const row of rows) runIds.add(row.id);
+    }
+    return [...runIds];
+  }
+
   markEvidenceRemovedForRevisionIds(revisionIds: readonly string[]): number {
     if (revisionIds.length === 0) return 0;
-    const placeholders = revisionIds.map(() => "?").join(",");
-    const runIds = (this.db.prepare(`SELECT id FROM analysis_runs
-      WHERE EXISTS (SELECT 1 FROM json_each(analysis_runs.input_revision_ids_json) WHERE value IN (${placeholders}))`)
-      .all(...revisionIds) as Array<{ id: string }>).map((row) => row.id);
+    const runIds = this.analysisRunIdsForInputRevisions(revisionIds);
     if (runIds.length === 0) return 0;
-    const runPlaceholders = runIds.map(() => "?").join(",");
-    return Number(this.db.prepare(`UPDATE analysis_records SET evidence_status = 'EVIDENCE_REMOVED'
-      WHERE evidence_status = 'PRESENT' AND evidence_ids_json != '[]'
-        AND analysis_run_id IN (${runPlaceholders})`).run(...runIds).changes);
+    let changed = 0;
+    for (const batch of this.batches(runIds)) {
+      const runPlaceholders = batch.map(() => "?").join(",");
+      changed += Number(this.db.prepare(`UPDATE analysis_records SET evidence_status = 'EVIDENCE_REMOVED'
+        WHERE evidence_status = 'PRESENT' AND evidence_ids_json != '[]'
+          AND analysis_run_id IN (${runPlaceholders})`).run(...batch).changes);
+    }
+    return changed;
   }
 
   deleteDerivedForRevisionIds(revisionIds: readonly string[]): {
     normalizedObservations: number; analysisRuns: number;
   } {
     if (revisionIds.length === 0) return { normalizedObservations: 0, analysisRuns: 0 };
-    const placeholders = revisionIds.map(() => "?").join(",");
-    const runs = this.db.prepare(`SELECT id FROM analysis_runs
-      WHERE EXISTS (SELECT 1 FROM json_each(analysis_runs.input_revision_ids_json) WHERE value IN (${placeholders}))`)
-      .all(...revisionIds) as Array<{ id: string }>;
-    const normalizedObservations = Number(this.db.prepare(
-      `DELETE FROM normalized_observations WHERE source_revision_id IN (${placeholders})`,
-    ).run(...revisionIds).changes);
+    const runIds = this.analysisRunIdsForInputRevisions(revisionIds);
+    let normalizedObservations = 0;
+    for (const batch of this.batches(revisionIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      normalizedObservations += Number(this.db.prepare(
+        `DELETE FROM normalized_observations WHERE source_revision_id IN (${placeholders})`,
+      ).run(...batch).changes);
+    }
     let analysisRuns = 0;
     const deleteRun = this.db.prepare(`DELETE FROM analysis_runs WHERE id = ?`);
-    for (const run of runs) {
+    for (const runId of runIds) {
       this.db.prepare(`DELETE FROM user_annotations WHERE target_type = 'ANALYSIS_RECORD'
-        AND target_id IN (SELECT id FROM analysis_records WHERE analysis_run_id = ?)`).run(run.id);
-      analysisRuns += Number(deleteRun.run(run.id).changes);
+        AND target_id IN (SELECT id FROM analysis_records WHERE analysis_run_id = ?)`).run(runId);
+      analysisRuns += Number(deleteRun.run(runId).changes);
     }
     return { normalizedObservations, analysisRuns };
   }
@@ -859,16 +946,16 @@ export class AxtoryDatabase {
     id: string; mode: string; target: unknown; status: "COMPLETED" | "FAILED";
     rawObservationsDeleted: number; normalizedObservationsDeleted: number;
     analysisRunsDeleted: number; blobsDeleted: number; spoolEntriesDeleted: number;
-    annotationsDeleted: number; executedAt: string;
+    annotationsDeleted: number; verificationNotesCleared: number; executedAt: string;
   }): void {
     this.db.prepare(`INSERT INTO deletion_runs(
       id, mode, target_json, status, raw_observations_deleted,
       normalized_observations_deleted, analysis_runs_deleted, blobs_deleted, spool_entries_deleted,
-      annotations_deleted, executed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      annotations_deleted, verification_notes_cleared, executed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.id, input.mode, canonicalJson(input.target), input.status, input.rawObservationsDeleted,
       input.normalizedObservationsDeleted, input.analysisRunsDeleted, input.blobsDeleted,
-      input.spoolEntriesDeleted, input.annotationsDeleted, input.executedAt,
+      input.spoolEntriesDeleted, input.annotationsDeleted, input.verificationNotesCleared, input.executedAt,
     );
   }
 
