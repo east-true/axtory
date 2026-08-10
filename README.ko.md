@@ -145,8 +145,9 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
   --classification PERSONAL_DATA --days 30
 ```
 
-Verification Note에는 별도 분류가 없어 Retention으로 만료되지 않습니다. 검증 대상 Analysis
-Record가 삭제될 때 함께 제거됩니다.
+위 규칙은 Annotation에만 해당합니다. `verify --note`가 남기는 Verification Note는 별개
+레코드이며 자체 분류가 없어 Retention으로 만료되지 않습니다. 검증 대상 Analysis Record가
+삭제될 때 함께 제거됩니다.
 
 ## 추가 AI Source
 

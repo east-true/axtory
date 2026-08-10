@@ -145,8 +145,9 @@ node dist/src/cli.js retain --data-dir .local/axtory-claude \
   --classification PERSONAL_DATA --days 30
 ```
 
-A verification note has no classification of its own and retention does not expire it; it is removed
-when the analysis record it verifies is deleted.
+That rule covers annotations only. A verification note left by `verify --note` is a separate record
+with no classification of its own, so retention does not expire it; it is removed when the analysis
+record it verifies is deleted.
 
 ## Additional AI sources
 
