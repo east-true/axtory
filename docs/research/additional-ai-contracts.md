@@ -94,13 +94,34 @@ Vendor 저장물을 추측해 parsing하지 않는다.
 
 | 후보 | 공식 읽기 경로 | 판정 |
 | --- | --- | --- |
-| Kimi Code | `kimi export <sessionId>`(ZIP, `-y`로 비대화형), 문서화된 `$KIMI_CODE_HOME/sessions/`(기본 `~/.kimi-code/sessions/`)의 `<workDirKey>/<sessionId>/state.json`과 `agents/*/wire.jsonl` | `PROPOSED`. OpenCode 다음으로 근거가 갖춰진 후보다. |
+| Kimi Code | `kimi export <sessionId>`(ZIP, `-y`로 비대화형), 문서화된 `$KIMI_CODE_HOME/sessions/`(기본 `~/.kimi-code/sessions/`)의 `<workDirKey>/<sessionId>/state.json`과 `agents/*/wire.jsonl` | `PROPOSED`. 실제 설치본 0.34.0으로 명령 존재를 확인했다. OpenCode 다음으로 근거가 갖춰진 후보다. |
 | GitHub Copilot CLI | 없음. 1.0.78의 하위 명령은 completion/help/init/login/mcp/plugin/plugins/skill/update/version뿐이고 세션 목록·export 명령이나 플래그가 없다. `--continue`와 `--connect`로 세션이 유지됨은 확인되지만 저장 형식은 문서화돼 있지 않다. | `NOT_SUPPORTED`. 문서화되지 않은 저장물을 parsing하지 않는다는 규칙에 걸린다. |
 | Muse Code | 로컬 append-only event log와 `muse replay`가 있으나 개발자 포털 로그인 뒤라 공개 문서가 없다. | `NEEDS_SPIKE`. 공개 계약을 확인하기 전에는 판정하지 않는다. |
 
 세 후보 모두 공식 배포가 원격 install script(`curl … | bash`)다. npm에서 이름이 겹치는
 `kimi-cli`, `kimi-code`, `cursor-agent`는 모두 무관한 서드파티 패키지이므로 설치 대상이 아니다.
 공식 경로 외 설치는 검증을 오염시킨다.
+
+### Kimi Code 실제 설치 확인 (0.34.0)
+
+공식 install script는 `code.kimi.com` 한 도메인에서만 내려받고 SHA256을 검증하며 기본 설치
+위치가 `$HOME/.kimi-code`라 권한 상승이 필요 없다. 기본 동작이 shell rc에 PATH를 덧붙이므로
+검증에는 `KIMI_NO_MODIFY_PATH=1`을 써서 사용자 rc를 바꾸지 않았다.
+
+- 문서가 말한 `--session`, `--continue`, `export`, `vis`가 실제로 존재한다.
+- `kimi export`는 `-y`로 확인 절차를 건너뛰고 `-o`로 출력 경로를 지정할 수 있어 비대화형
+  child-process 수집에 적합하다.
+- **`--no-include-global-log`가 필요하다.** export는 기본적으로 전역 진단 로그
+  `~/.kimi-code/logs/kimi-code.log`를 함께 묶는다. 이는 대상 Session 범위를 넘어서므로
+  Connector는 이 플래그를 반드시 지정해 export를 한 Session으로 한정해야 한다.
+- Session이 없으면 `export`가 exit 1과 `No previous session found to export.`로 끝난다.
+  빈 결과를 성공으로 위장하지 않으므로 Availability 판정에 그대로 쓸 수 있다.
+- `sessions/` 디렉터리는 지연 생성이라 미사용 설치에서는 없다. 부재를 수집 실패로 다루면 안 된다.
+- 산출물이 ZIP이므로 Connector는 압축 해제 경로가 필요하다. Node 기본 모듈에 ZIP reader가 없어
+  Core 의존성 0 원칙과 충돌하는지 구현 전에 판단해야 한다.
+
+자격증명이 없어 실제 Session을 만들지 못했으므로 `state.json`과 `wire.jsonl`의 실제 내용은
+검증하지 않았다.
 
 출처: <https://www.kimi.com/code>, <https://www.kimi.com/code/docs/en/kimi-code-cli/guides/sessions.html>,
 <https://github.com/github/copilot-cli>, <https://research.meta.ai/blog/introducing-muse-code-and-muse-spark-1-2>
