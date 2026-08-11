@@ -107,6 +107,15 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
   - 실제 content로 Rule Semantic Analyzer가 동작하고, `--allow-conversation-content` 없이는
     동의 게이트가 거절한다.
   - Usage Report까지 통과한다(Session 2, Message 8 = user 3·assistant 5, Tool 3).
+  - `--limit 1`로 상한을 치면 `PARTIAL_LIMIT`이며 완전하다고 주장하지 않는다.
+  - `--project-dir`가 실제로 범위를 좁힌다. Session이 있는 디렉터리에서는 2건, `/tmp`에서는
+    0건이므로 `scopeIdentity`가 실제 범위와 일치한다.
+  - Tool 이름은 `other` 범주로만 남아 Vendor 고유 이름이 리포트에 들어가지 않는다.
+  - 한 data directory에 Codex와 함께 수집하면 리포트가 Source별로 분리한다(합계 22 Session =
+    OpenCode 2 + Codex 20, Message 9035 = 8 + 9027). 반복 `--source`가 각각을 정확히 걸러낸다.
+  - `DELETE_RAW_ONLY` 후에도 count는 유지하되 `EVIDENCE_REMOVED`와 보존/삭제 개수를 표시한다.
+  - `renormalize`는 OpenCode를 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고하며, Raw가
+    삭제된 Revision은 별도로 집계하고 기존 정규화를 유지한다.
   - 다만 OpenCode session 목록은 `directory`를 보고한다. Claude·Codex가 digest로 수집하는 작업
     공간 맥락과 같은 값인데 AXtory는 읽지 않는다. 리포트는 `NOT_COLLECTED`로 표시한다.
 - **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가
