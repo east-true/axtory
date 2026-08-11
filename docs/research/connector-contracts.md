@@ -129,8 +129,8 @@ in both existence and direction.
 
 ### Decision: emit `FORKED_FROM` for Claude, as an INFERRED relation
 
-Recorded here so it is not re-litigated. AXtory should emit the relation, but not the way Codex
-does, and it is not yet implemented.
+Recorded here so it is not re-litigated. AXtory emits the relation, but not the way Codex does.
+Implemented as `analyze-fork-lineage`.
 
 - **Derivation is `INFERRED`, not `OBSERVED`.** Codex reads a declared `forkedFromId`, so its
   relation is a Vendor claim. Claude declares nothing; the link survives only because the fork
@@ -149,6 +149,62 @@ does, and it is not yet implemented.
   disappears and the relation stops being emitted. That is a false negative, which the coverage
   vocabulary can express, rather than a false positive, which it cannot repair.
 - Only identity digests are compared, so the pass stays content-free like the rest of the pipeline.
+
+The content fallback was closed as part of implementing this. The Claude normalizer derives a
+message identity from the Vendor `uuid`, falling back to a hash of the message index and content
+when the key is absent. Two sessions that merely opened with the same prompt would then share a
+fallback identity, which is precisely the manufactured lineage the earlier history read warned
+about. The normalizer now records `sourceMessageIdentityFrom`, and a session holding any
+content-derived identity is excluded from the pass rather than compared. Revisions collected before
+that field existed carry no marker and are treated as Vendor-assigned, which matches the 14744
+messages measured to carry a `uuid` without exception. Normalizer version moves to
+`claude-official-history/3`.
+
+Run against a real 86-session collection, the pass reproduced the probe exactly: 1 candidate pair,
+1 relation, 0 ambiguous, 0 without a direction, with a 168-message shared opening between a
+168-message parent and a 618-message child created about 22 hours later.
+
+### Controlled real active session
+
+Real bounded `claude -p` runs, read through the official API while they were still producing
+output. This is the Claude counterpart of the Codex unsettled-turn question, and it lands on the
+opposite answer.
+
+**A mid-turn view is genuinely incomplete and nothing in it says so.** A session read while its
+turn was running returned exactly one message, the user's. The same session after the turn settled
+returned three: user, assistant, assistant. No message in either view carried any key beyond
+`type`, `uuid`, `session_id`, `message`, `timestamp`, `parent_tool_use_id`, and `parent_agent_id`,
+so no field marks the turn as unfinished.
+
+**The mid-turn shape is identical to an abandoned opening.** A lone user message with no assistant
+reply is exactly what 152 of the 265 sessions in the earlier history read looked like. Those are
+real, finished-with sessions. A running turn and an abandoned opening are therefore the same view,
+and no in-view predicate can separate them. Codex settles the same question from inside its
+snapshot because a turn carries `completedAt`; Claude exposes no equivalent, so
+`PARTIAL_UNSETTLED_TURN` has no Claude analogue to read.
+
+**The existing change signal is real but low-sensitivity, and this is measured rather than
+assumed.** The collector compares the `lastModified` in the session list against a `getSessionInfo`
+taken after that session's messages are read. `lastModified` does advance while a session is live,
+so the signal is not dead: a bounded run showed three distinct values across about a minute. It
+nevertheless did not fire in any real attempt — nine full collections run against live sessions
+reported `sourceChangedViews: 0`, as did 67 tighter list/read/re-read cycles. Two measurements
+explain why:
+
+- The live session is always first in the walk. `listSessions` returns most-recently-modified
+  first, and across every poll of a 94-session list the running session sat at index 0. It is
+  therefore the session with the *smallest* possible gap between the list snapshot and its own
+  re-read, which is the opposite of what catching a concurrent write would need.
+- A bounded run writes about twice, not continuously. Two writes were observed in one run and three
+  distinct `lastModified` values in another, clustered rather than spread. A write has to land
+  inside a window of milliseconds to be seen.
+
+**Consequence, stated plainly.** AXtory can record a Claude session mid-turn, label the view
+`COMPLETE_FOR_RETURNED_VIEW`, and be wrong about the conversation being finished, with no available
+signal to prevent it. Marking every Claude session `UNKNOWN` would trade a rare wrong claim for a
+constant useless one, and inventing a recency threshold would be a guess of exactly the kind the
+coverage vocabulary exists to avoid. The honest position is that the limitation is a Vendor gap,
+recorded here, and that a later collection supersedes the partial one with a complete revision.
 
 ### Controlled worktree session
 
@@ -193,9 +249,9 @@ byte-for-byte with `rollback-live`.
 | ToolUse/ToolResult block presence | VERIFIED | Official API returned both type labels; payload schema remains untrusted/unknown. |
 | Per-message timestamp key | VERIFIED | Key observed locally; optionality and semantics still require synthetic contract tests. |
 | `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
-| Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. Still open, and the Codex resolution does not transfer: Codex reads a frozen snapshot, so liveness is hidden by construction and coverage is decided on turn completion instead, whereas the Claude collector re-reads live state with `getSessionInfo` after the message read and compares `lastModified`. That comparison can fire, but no controlled session has been observed changing during a read. |
+| Active-session snapshot consistency | VERIFIED/NEGATIVE | Settled against real live sessions. A mid-turn view returned 1 message where the settled one returned 3, and no field marks the turn unfinished; the shape is identical to the abandoned openings that make up most of the history, so no in-view predicate can separate them and Codex's `completedAt` test has no Claude analogue. The `lastModified` comparison is real — the value does advance while a session is live — but did not fire in 9 full collections or 67 tighter cycles, because the live session always sorts to index 0 (smallest possible window) and a bounded run writes only about twice. A mid-turn view can therefore be labelled complete; a later collection supersedes it. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
-| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. A read of 85 real sessions found one shared-uuid pair out of 3570, with exact prefix shape and no ambiguous case, so `FORKED_FROM` is decided as an `INFERRED` relation emitted by an analysis pass; not yet implemented. |
+| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. A read of 85 real sessions found one shared-uuid pair out of 3570, with exact prefix shape and no ambiguous case, so `FORKED_FROM` is emitted as an `INFERRED` relation by the `analyze-fork-lineage` pass. |
 | Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
 | Custom config behavior in SDK reads | VERIFIED | Isolated empty root returned zero sessions and did not expose default-root history. |
 | SDK 0.3.220 with CLI 2.1.226 | VERIFIED | Local bounded read succeeded; no broader compatibility matrix is inferred. |
@@ -219,7 +275,7 @@ session becomes a fixture.
 | Resume and fork lineage | VERIFIED | Controlled sessions separated the two. Resume keeps the same `sessionId` and grows it, so there is nothing to relate. Fork mints a new `sessionId` whose messages repeat the parent's `uuid` values, which is Vendor-assigned identity rather than duplicate content. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
-| Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
+| Active session | VERIFIED_BY_TEST/NEGATIVE | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED` in synthetic tests. Real live sessions were then collected: the signal never fired, and the Vendor exposes no marker that would let a mid-turn view be recognized at all. |
 | Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree. AXtory now reads both fields, but only as digests and only as workspace context, so a worktree still yields no relation. |
 | Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
@@ -332,11 +388,35 @@ and `gitBranch`.
   path in the exported report.
 - Normalizer version moves to `codex-app-server/2`.
 
+### Version compatibility
+
+Codex 0.146.1 was installed into a throwaway prefix and driven through the same collector, with
+discovery pointed at it by `env` so the user's global 0.147.0 was never replaced. The two were then
+compared call by call.
+
+- `initialize`, `thread/list`, and `thread/read` all exist on both, the accepted `sourceKinds`
+  vocabulary is identical, and the `thread/list` envelope is the same `data`/`nextCursor`/
+  `backwardsCursor` shape. A listed thread carries 26 keys on 0.147.0 against 25 on 0.146.1, an
+  additive difference that changes nothing AXtory reads.
+- The break is `thread/read` with `includeTurns: true`, which AXtory always sends. On 0.146.1, 5 of
+  40 real threads were refused with "paginated threads do not support
+  `thread/read(includeTurns=true)`". The same 40 all read on 0.147.0. Support for reading a
+  paginated thread whole therefore arrived in 0.147.0, and AXtory depends on it because it
+  deliberately avoids the experimental paged turn API.
+- **0.147.0 is a floor, not a preference.** Below it, any thread large enough to be paginated
+  cannot be collected.
+- The failure is also all-or-nothing: one unreadable thread aborts the run, so the 35 readable ones
+  are lost rather than reported as partial coverage. Treating an unreadable thread as explicit
+  partial coverage would fit the coverage vocabulary better and is not implemented.
+- The client used to raise a bare `-32600`, which named nothing. It now carries the server's own
+  message, which is what identified this in the first place.
+
 ### Contract status
 
 | Contract | Current status | Handling |
 | --- | --- | --- |
 | App Server lifecycle | VERIFIED | Isolated state snapshot is mandatory; direct original-home startup is rejected by design. |
+| Version compatibility | VERIFIED | 0.147.0 is the floor. 0.146.1 shares the methods, source-kind vocabulary, and response shape, but refuses `thread/read(includeTurns=true)` for paginated threads (5 of 40 real threads), which AXtory always requests. Untested above 0.147.0. |
 | `thread/list` cursor pagination | VERIFIED_BY_TEST/PARTIAL | Cursor advance, repeat detection, max-page bound, duplicate handling, archive split tested. |
 | source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |

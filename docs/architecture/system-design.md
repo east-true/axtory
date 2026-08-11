@@ -369,31 +369,68 @@ Contract Test로 검증한다.
 - 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
   Analytics Console/JSON 리포트
 - Claude Session과 Codex thread의 작업공간 맥락을 digest로 수집하는 `--workspace-dir` 범위 지정
+- Vendor 메시지 정체성으로 Claude fork를 찾아 `FORKED_FROM`을 `INFERRED`로 내는 분석 pass
+- Raw를 다시 읽어 파생 관측치만 제자리 재계산하는 `renormalize`
 
 ### 미구현 또는 추가 Spike 필요
 
-- Normalizer 버전이 오른 뒤 기존 Revision의 재정규화 (아래 참조)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
 - App Server daemon이 live state를 읽을 때 `active`를 보고하는지 (수집기는 의도적으로 snapshot을
   읽으므로 결과와 무관하다)
-- Codex 추가 버전 호환성
+- Codex 0.147.0 초과 버전 호환성 (0.146.1은 하한 미만으로 확인)
 - Muse Code Connector: 읽기 경로는 확인했으나 export 필드명이 미공개
-- 자격증명이 있는 실제 세션에서의 Gemini/OpenCode/Kimi content 검증
+- 자격증명이 있는 실제 세션에서의 Gemini·Kimi content 검증 (OpenCode는 실제 대화로 검증 완료)
+- OpenCode session 목록의 `directory`를 작업공간 맥락으로 수집할지 결정
 - Public Connector SPI 안정화·게시 결정
 
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
 
-Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않는다. 재사용 판단은
-`(source_object_id, source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을
-막아도 Revision id가 content hash에서 결정되고 관측치 삽입이
-`ON CONFLICT(source_revision_id, stable_key) DO NOTHING`이라 새 정규화 결과가 조용히 버려진다.
-실제 데이터로 확인했다. `codex-app-server/1`로 수집한 75 Revision이 있는 디렉터리에 재수집하면
-새로 생긴 24건만 `workspaceIdentity`를 갖고 재사용된 26건은 그대로였다. 따라서 Normalizer에
-필드를 추가하면 이후 변경되는 Session만 그 필드를 갖는다. 재정규화를 지원하려면 Revision을
-새로 만들 것인지 파생 관측치만 다시 계산할 것인지를 먼저 정해야 하므로 열린 설계 결정이다.
-Raw 불변성은 원본을 수정하지 않는다는 뜻이고 파생 관측치 재계산을 금지하지는 않는다.
+재수집은 Normalizer 변경을 반영하지 못한다. 재사용 판단이 `(source_object_id,
+source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을 막아도 Revision id가
+content hash에서 결정되고 관측치 삽입이 `ON CONFLICT(source_revision_id, stable_key) DO NOTHING`
+이라 새 정규화 결과가 조용히 버려진다. 실제로 `codex-app-server/1`로 수집한 75 Revision
+디렉터리에 재수집하면 새로 생긴 24건만 `workspaceIdentity`를 갖고 재사용된 26건은 그대로였다.
+
+**결정:** 재정규화는 파생 관측치를 제자리에서 다시 계산하며 Revision을 새로 만들지 않는다.
+SourceRevision은 raw view의 content hash로 식별되므로 원천의 한 상태를 뜻한다. Normalizer가
+바뀌었다고 원천이 바뀐 것은 아니고, Revision을 새로 만들면 바뀌었다고 주장하는 셈이며 모델이
+기대는 유일성과도 충돌한다. Raw 불변성은 원본을 수정하지 않는다는 뜻이고 파생 계층 재계산을
+금지하지 않는다.
+
+`renormalize`가 이를 수행한다. Revision의 저장된 normalizer 버전이 현재와 다르면 raw를 다시 읽어
+정규화하고 관측치를 교체한 뒤 버전을 기록한다. Head Revision뿐 아니라 저장된 모든 Revision을
+대상으로 하는데, 밀려난 Revision도 보존된 증거이고 그것만 옛 Normalizer로 남기면 같은 DB가 어느
+Revision을 읽느냐에 따라 같은 질문에 다르게 답하기 때문이다. Coverage는 다시 계산하지 않고
+저장된 값을 이어받는다. Coverage는 내용이 아니라 그때의 읽기를 서술하므로, 지금 다시 만들면
+이미 끝난 읽기에 대한 판단을 지어내는 것이 된다. 그 Revision을 입력으로 삼은 AnalysisRecord는
+`INVALIDATED`가 된다. 증거가 사라진 것이 아니라 다시 계산되었으므로 `EVIDENCE_REMOVED`가
+아니다. Raw가 이미 삭제된 Revision은 옛 정규화가 그 Revision에 남은 전부이므로 그대로 둔다.
+
+Claude와 Codex는 raw view가 Normalizer 입력을 온전히 담아 재정규화할 수 있다. 추가 AI Source는
+raw에 Vendor payload만 있고 Normalizer가 읽는 파싱된 view가 없어 live adapter 없이는 입력을
+복원할 수 없으므로, 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고한다.
+
+Claude는 진행 중인 turn을 표시하지 않는다. 실행 중인 Session을 읽으면 user Message 1건만
+돌아오고, turn이 끝난 뒤 같은 Session은 3건(user·assistant·assistant)을 돌려준다. 어떤 Message도
+평소의 key 외에 아무것도 갖지 않으므로 turn이 끝나지 않았다는 표식이 없다. 게다가 이 모양은
+전체 이력 265 Session 중 152건을 차지하는 "버려진 첫 메시지"와 동일하다. 즉 실행 중인 turn과
+버려진 Session은 같은 view이며 view 안에서 구분할 방법이 없다. Codex는 turn의 `completedAt`으로
+snapshot 안에서 판정하지만 Claude에는 대응 필드가 없어 `PARTIAL_UNSETTLED_TURN`에 해당하는
+Claude 판정식이 존재하지 않는다.
+
+`lastModified` 비교는 죽은 신호는 아니다. 실행 중에 값이 실제로 올라간다(약 1분에 서로 다른 값
+3개). 다만 실제로는 발화하지 않았다. 라이브 Session 대상 전체 수집 9회와 더 좁은
+목록·읽기·재읽기 67회 모두 `sourceChangedViews: 0`이었다. 이유는 두 가지를 측정해 확인했다.
+`listSessions`가 최근 수정순으로 반환해 실행 중인 Session이 94건 목록에서 항상 index 0에
+앉으므로 목록 snapshot과 자기 재읽기 사이 간격이 가장 짧고, bounded 실행은 연속이 아니라 약 2회만
+기록한다. 따라서 쓰기가 밀리초 창 안에 들어와야 한다.
+
+결과적으로 AXtory는 진행 중인 Claude Session을 `COMPLETE_FOR_RETURNED_VIEW`로 기록할 수 있고
+이를 막을 신호가 없다. 모든 Claude Session을 `UNKNOWN`으로 두면 드문 오류를 상시 무용함과
+바꾸는 것이고, 최근성 임계값을 만드는 것은 coverage 어휘가 피하려는 바로 그 추측이다. Vendor
+한계로 기록하며, 이후 수집이 완전한 Revision으로 대체한다.
 
 Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거가 없는 경우다. 전체 로컬
 이력 265 Session·24917 Message를 구조만 읽고, 별도로 통제된 resume·fork Session을 만들어
@@ -422,7 +459,8 @@ Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 �
 `cwd`와 `gitBranch`도 같았으며, prefix를 가진 쪽이 약 22시간 먼저 만들어졌다. prefix가 아닌
 부분 겹침은 0쌍이었다. 즉 오탐이 없고 방향도 두 신호가 일치한다.
 
-**결정:** `FORKED_FROM`을 생성하되 Codex와 같은 방식으로는 하지 않는다. 아직 구현하지 않았다.
+**결정:** `FORKED_FROM`을 생성하되 Codex와 같은 방식으로는 하지 않는다. `analyze-fork-lineage`로
+구현했다.
 
 - Derivation은 `OBSERVED`가 아니라 `INFERRED`다. Codex는 선언된 `forkedFromId`를 읽으므로 Vendor의
   주장이지만, Claude는 아무것도 선언하지 않고 구현 세부가 남긴 흔적에서 추론한다. 둘을 같은 종류의
@@ -433,6 +471,16 @@ Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 �
   오래되어야 한다. 애매한 경우는 추측 대신 관계 없음이 된다.
 - Vendor가 fork 시 uuid를 재발급하면 신호가 사라져 관계가 생성되지 않는다. 이는 coverage 어휘로
   표현 가능한 미탐이며, 복구 불가능한 오탐보다 낫다.
+- 구현하면서 content fallback 경로를 막았다. Normalizer는 `uuid`가 없으면 메시지 index와 내용의
+  hash로 identity를 만드는데, 그러면 같은 첫 프롬프트로 시작한 두 Session이 identity를 공유해
+  전체 이력 읽기가 경고했던 바로 그 조작된 계보가 된다. 이제 `sourceMessageIdentityFrom`을
+  기록하고, 내용에서 파생된 identity를 하나라도 가진 Session은 비교 대상에서 제외한다. 이 필드가
+  생기기 전 Revision은 표식이 없으며 Vendor 부여로 간주하는데, 측정한 14744 Message가 예외 없이
+  `uuid`를 가졌기 때문이다. Normalizer는 `claude-official-history/3`이다.
+
+실제 86 Session 수집에 돌려 프로브와 정확히 같은 결과를 얻었다. 후보 1쌍, 관계 1건, 애매한 쌍
+0건, 방향 불명 0건이며 168 Message 부모와 약 22시간 뒤 만들어진 618 Message 자식이 168개의
+공통 시작부를 공유한다.
 
 Codex `gitInfo.originUrl`은 같은 부류로 보였지만 결론이 다르다. **수집하지 않는다.** worktree와
 branch 전환을 구분해 준다는 이점이 있으나, Claude에 대응 필드가 없어 Source 간 비대칭이 생기고,

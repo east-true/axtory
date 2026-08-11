@@ -124,16 +124,17 @@ Capability 검사
   Analytics Console/JSON 리포트
 - 명시적 content 동의가 있을 때만 Usage Report에 통합되는 Rule Semantic 범주
 - Claude Session과 Codex thread의 작업공간 맥락을 digest로만 수집하는 `--workspace-dir` 범위 지정
+- Vendor 메시지 정체성에서 Claude fork를 추론하는 `INFERRED` `FORKED_FROM` 분석
 
 Claude의 resume·compaction·worktree·subagent와 Codex의 resume·fork·subagent·미완료 turn은
 통제된 실제 사례로 확인했고, 대부분 관계가 없다는 negative 결론이었다. 다만 다음은 아직 열려
-있다. Claude의 실제 active Session 중 수집(목록 읽기와 재읽기 사이의 변경 감지)은 통제된
-사례가 없다. Codex는 격리 snapshot을 읽으므로 같은 질문이 구조적으로 성립하지 않지만 Claude는
-live 상태를 다시 읽으므로 성립한다.
+있다. Claude 진행 중 Session은 실제 사례로 확인했고 Vendor가 표식을 주지 않는다는 negative
+결론이었다. 진행 중인 view가 완전하다고 기록될 수 있으며 이를 막을 신호가 없다. 이후 수집이
+완전한 Revision으로 대체한다.
 
-Claude fork는 `FORKED_FROM`을 `INFERRED`로 발행하기로 결정했고 아직 구현하지 않았다. Codex처럼
-선언된 필드를 읽는 것이 아니라 Vendor 메시지 정체성에서 추론하므로 Derivation을 구분한다. Codex
-`gitInfo.originUrl`은 수집하지 않는다.
+Claude fork는 `FORKED_FROM`을 `INFERRED`로 발행한다. Codex처럼 선언된 필드를 읽는 것이 아니라
+Vendor 메시지 정체성에서 추론하므로 Derivation을 구분한다. Codex `gitInfo.originUrl`은 수집하지
+않는다.
 
 ## 7. 초기 MVP 이후에도 제외하는 것
 

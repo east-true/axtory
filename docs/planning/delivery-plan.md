@@ -262,8 +262,7 @@ Codex 모두 절대 경로와 branch 이름의 digest만 기록하고 리포트�
 방식으로 해싱해 digest끼리만 비교하므로, 경로와 branch 이름은 리포트에 들어가지 않는다. 아무도
 작업하지 않은 디렉터리는 0이 아니라 `SOURCE_UNAVAILABLE`이다. branch는 작업공간과 별도 분모로
 센다. Git 작업 트리 밖에서 실행된 Codex thread는 branch가 없는데 이는 수집 누락이 아니기
-때문이다. 다만 Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않으므로 이 필드는 이후
-새로 생기거나 변경되는 Session에만 채워진다. 한계와 배경은
+때문이다. 재수집은 이 필드를 채우지 못하므로 기존 디렉터리는 `renormalize`로 채운다. 배경은
 `architecture/system-design.md`에 기록했다.
 
 **정합성 보강:** Connector·Live·Report 경로 감사로 확인한 결함을 함께 수정했다. 원천 시각은
@@ -289,18 +288,41 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
 10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
-11. **다음:** 아래 네 가지
+11. **완료:** 아래 네 가지. 자격증명이 필요한 content 검증만 환경 제약으로 남았다
 
-- **Claude `FORKED_FROM` 구현:** 발행하기로 결정했다. 실제 이력 85 Session에서 공유 uuid 쌍이
-  3570쌍 중 1쌍이고 정확한 prefix 형태이며 오탐이 0이었다. Normalizer가 아니라 분석 단계에서
-  `INFERRED`로 만들고, 판정식은 0번부터의 연속 prefix와 생성 시각 순서를 모두 요구한다. 근거와
-  결정 이유는 `architecture/system-design.md`와 `research/connector-contracts.md`에 있다.
-- **재정규화:** Normalizer 버전이 올라도 기존 Revision은 다시 정규화되지 않는다. Revision을 새로
-  만들 것인지 파생 관측치만 재계산할 것인지 정해야 하는 열린 설계 결정이다. 현재는 새
-  `--data-dir` 수집이 유일한 우회다.
-- **Claude 실제 active Session:** 목록 읽기와 재읽기 사이에 변경되는 통제된 Session이 없다.
-  구현과 합성 테스트는 있으나 실제 사례가 없다. Codex는 격리 snapshot을 읽으므로 해당하지 않는다.
-- **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**
+- **완료 — Claude `FORKED_FROM`:** `analyze-fork-lineage`가 분석 단계에서 `INFERRED` 관계를
+  만든다. 판정식은 두 Session의 0번부터 연속된 공통 시작부와 생성 시각 순서를 모두 요구하며,
+  공통 시작부 밖에서 identity를 공유하면 추측 대신 관계를 만들지 않는다. 내용에서 파생된
+  identity를 가진 Session은 제외해 같은 첫 프롬프트가 fork로 둔갑하지 않게 했다. 실제 86 Session
+  수집에서 후보 1쌍·관계 1건·애매 0건으로 프로브 결과를 재현했다.
+- **완료 — 재정규화:** `renormalize`가 파생 관측치를 제자리에서 재계산하며 Revision을 새로 만들지
+  않는다. Revision은 raw content hash로 원천의 한 상태를 뜻하고 Normalizer 변경은 원천 변경이
+  아니기 때문이다. Raw는 다시 쓰지 않고, Coverage는 그때의 읽기를 서술하므로 이어받으며, 해당
+  Revision을 쓴 AnalysisRecord는 `INVALIDATED`가 된다. 실제 75 Revision Codex 디렉터리에서
+  `codex-app-server/1` 전량을 `/2`로 올려 리포트가 `PARTIAL, 3 distinct, 58 sessions without one`
+  에서 `AVAILABLE, 6 distinct`로 바뀌는 것을 확인했다.
+- **완료 — Claude 실제 active Session:** 실제 라이브 Session으로 확인했고 negative 결론이다.
+  진행 중인 turn을 읽으면 Message 1건, 끝난 뒤 3건이며 끝나지 않았다는 표식이 되는 필드가 없다.
+  이 모양은 이력의 다수를 차지하는 버려진 첫 메시지와 동일해 view 안에서 구분할 수 없고, Codex의
+  `completedAt` 판정에 해당하는 Claude 필드가 없다. `lastModified`는 실행 중 실제로 올라가지만
+  전체 수집 9회와 더 좁은 주기 67회 모두 발화하지 않았다. 실행 중 Session이 목록 index 0에 앉아
+  창이 가장 짧고 bounded 실행이 약 2회만 기록하기 때문이다. 진행 중 view가 완전하다고 기록될 수
+  있다는 Vendor 한계를 문서화했다.
+- **완료 — Codex 추가 버전 호환성:** 0.146.1을 임시 prefix에 설치해 사용자의 전역 0.147.0을
+  건드리지 않고 비교했다. method·`sourceKinds` 어휘·응답 shape는 같지만, AXtory가 항상 보내는
+  `thread/read(includeTurns: true)`를 0.146.1이 paginated thread에 대해 거절한다(실제 40건 중
+  5건). 따라서 **0.147.0이 하한**이다. 이 과정에서 client가 서버 error message를 버리고 코드만
+  남기던 결함을 고쳤다. 0.147.0 초과 버전은 미검증이다.
+- **부분 완료 — Gemini/OpenCode/Kimi content 검증:** **OpenCode는 실제 대화로 완전히 검증했다.**
+  `opencode run`이 인증 없이 동작해 Session을 직접 만들고 변경하며 확인했다. Vendor store와
+  수집 결과가 일치하고, role·`partTypes`가 OpenCode 고유 구조를 보존하며, 상한은 `PARTIAL_LIMIT`,
+  `--project-dir`가 실제로 범위를 좁히고, Tool 이름은 `other` 범주로만 남으며, Codex와의 합산·
+  필터가 정확하고, 삭제 후 `EVIDENCE_REMOVED`를 표시하며, Rule Semantic과 Usage Report를
+  통과하고, 제목·id·경로·projectId 유출은 0건이다. 기존 Session에 turn을 덧붙이면 변경된 것만
+  새 Revision이 되고(신규 1·불변 2) 리포트는 최신 Revision만 세어 재수집을 사용량으로 오인하지
+  않는다. Fork는 declared field도 공유 message id도 없어 관측 불가능하므로 관계를 만들지 않는
+  현재 동작이 옳다. Gemini(auth 미설정)와 Kimi(대화형 `/login` 요구)만 남았고 계정 연결은 사용자
+  결정이라 하지 않았다. 근거는 `research/additional-ai-contracts.md`에 있다.
 
 Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.
 

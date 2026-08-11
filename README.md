@@ -62,6 +62,13 @@ afterwards to restore it before building.
 The spike report contains structural metadata only. See
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md).
 
+A Claude session collected while it is still answering is recorded as a complete view of what the
+API returned, which may be fewer messages than the finished conversation. Claude exposes no field
+marking a turn as unfinished, and a running turn looks exactly like a session someone abandoned
+after one message, so AXtory cannot tell them apart. Codex reports this case as
+`PARTIAL_UNSETTLED_TURN` because a thread carries a turn completion time; Claude has no equivalent.
+Collecting again after the session finishes supersedes the partial revision with a complete one.
+
 ## Codex history
 
 Codex collection uses the user-installed `codex` executable and the official App Server. Because
@@ -210,7 +217,8 @@ node dist/src/cli.js report-usage \
 
 Claude and Codex both record the workspace, and both hash the same absolute path the same way, so
 one `--workspace-dir` selects a directory's sessions from either source. The additional AI sources
-report no working directory at all, so they carry no workspace and a scoped report excludes them.
+do not record one, so they carry no workspace and a scoped report excludes them. OpenCode is the
+one that could: its session listing reports a `directory`, which AXtory does not currently read.
 
 The report also counts how many distinct workspaces and branches the selected sessions ran in.
 Revisions collected before this field existed carry no workspace: they are excluded from a scoped
@@ -219,9 +227,24 @@ report and counted as `sessionsWithoutWorkspace` in an unscoped one, which marks
 
 Recollecting does **not** backfill them. A collector reuses a revision whenever the source's
 modification time is unchanged, and a revision's normalized observations are written once, so a
-session that never changes again keeps the normalization it was first collected with. Only sessions
-that are new or modified after the normalizer changed carry the workspace. Collecting into a fresh
-`--data-dir` gives a fully populated report; re-normalizing an existing one is not yet supported.
+session that never changes again keeps the normalization it was first collected with.
+
+`renormalize` is what backfills them. It re-reads retained raw evidence, recomputes the derived
+observations in place, and records which normalizer produced them:
+
+```sh
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude --dry-run
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude
+```
+
+It does not create a revision. A revision is identified by the hash of the raw view, so it stands
+for a state of the source, and the source did not change when the normalizer did. Raw evidence is
+never rewritten — only the derived layer is recomputed. Coverage is carried forward rather than
+recomputed, because it describes the read that happened rather than the content. Analysis records
+built on a re-normalized revision become `INVALIDATED`, which is distinct from `EVIDENCE_REMOVED`:
+the evidence is present, it was recomputed. Revisions whose raw evidence was already deleted keep
+the normalization they have. Claude and Codex can be re-normalized; the additional AI sources store
+only the Vendor payload, so they are reported as unsupported rather than silently skipped.
 
 A branch is counted on its own denominator because a session can record a workspace without one. A
 Codex thread that did not run in a Git working tree reports no branch, which is a normal thread
@@ -266,6 +289,21 @@ matches are `INFERRED`, never verification:
 node dist/src/cli.js analyze-rule --data-dir .local/axtory-claude \
   --revision-id revision_... --allow-conversation-content
 ```
+
+Claude does not declare a fork. A forked session gets a new id and names no parent, but it replays
+the parent's messages keeping their Vendor-assigned ids, so lineage is recoverable from identity
+rather than from resemblance. `analyze-fork-lineage` reads that and records `FORKED_FROM`:
+
+```sh
+node dist/src/cli.js analyze-fork-lineage --data-dir .local/axtory-claude
+```
+
+The relation is `INFERRED`, not `OBSERVED` — Codex reads a declared `forkedFromId`, while this is
+read out of an implementation detail. A relation is emitted only when the shared identities form a
+contiguous opening of both sessions and the child was created later; anything else is reported as
+ambiguous and left alone. Sessions whose message identity fell back to a content hash are excluded,
+so two sessions that merely opened with the same prompt cannot be read as a fork. Only digests are
+compared, so the pass reads no conversation content.
 
 Local/remote model integrations use a strict tool-less structured-result adapter; AXtory does not
 bundle or configure a model provider. Local Git collection excludes paths, diffs, commit messages,

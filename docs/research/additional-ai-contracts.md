@@ -85,6 +85,63 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 - Vendor가 출력 형식을 바꾸면 조용히 빈 결과로 처리하지 않고 schema/format error로 실패한다.
   합성 테스트는 향후 모든 Vendor 버전이나 사용자의 전체 history를 보증하지 않는다.
 
+### 자격증명 기반 content 검증 재시도 (2026-08-11)
+
+**OpenCode는 실제 대화로 검증했고, Gemini와 Kimi는 자격증명이 없어 여전히 미검증이다.**
+막힌 이유는 각각 확정했다. OpenCode는 `auth.json`의 credential이 0건이어서 처음에 자격증명
+부재로 판단했으나 이는 틀렸다. `opencode run`이 인증 없이 동작해 직접 Session을 만들고 변경할
+수 있었고, 아래 검증은 그렇게 수행했다.
+
+- **Gemini CLI 0.54.4:** 설치돼 있으나 auth 미설정이다. `--list-sessions`가 `GEMINI_API_KEY`
+  등을 요구하며 실패한다. AXtory는 이때 exit 1로 명시 종료하고 출력 파일을 쓰지 않는다. 0건으로
+  위장하지 않는다는 계약을 실제로 재확인했다.
+- **OpenCode 1.18.16: 실제 대화로 content 계약을 검증했다.** 처음에는 session 0건이어서
+  `AVAILABLE`에 0건을 보고했고(원천을 읽을 수 있고 실제로 비어 있으므로 옳으며, Gemini의 hard
+  fail과 구분되는 것이 핵심이다), 이후 사용자가 실제 Session 2건을 만들어 아래를 확인했다.
+  - Vendor store의 session 2·message 8과 수집 결과가 정확히 일치하고, tool occurrence 3건을
+    얻었다. `metadataOnlyViews` 0건, `structuredViews` 2건으로 export 본문이 실제로 구조화됐다.
+  - Message role이 실제 USER/ASSISTANT로 정규화되고 `partTypes`가 OpenCode 고유 구조
+    (`step-start`·`reasoning`·`tool`·`text`·`step-finish`)를 그대로 보존한다. 합성 fixture가
+    아니라 실제 shape다.
+  - 재수집 시 신규 Revision 0건이다.
+  - Session 제목("새 세션 시작" 등), session id, 프로젝트 경로, projectId 중 어느 것도 JSON
+    출력과 정규화 관측치에 남지 않는다. 내용은 digest뿐이다.
+  - 실제 content로 Rule Semantic Analyzer가 동작하고, `--allow-conversation-content` 없이는
+    동의 게이트가 거절한다.
+  - Usage Report까지 통과한다(Session 2, Message 8 = user 3·assistant 5, Tool 3).
+  - `--limit 1`로 상한을 치면 `PARTIAL_LIMIT`이며 완전하다고 주장하지 않는다.
+  - `--project-dir`가 실제로 범위를 좁힌다. Session이 있는 디렉터리에서는 2건, `/tmp`에서는
+    0건이므로 `scopeIdentity`가 실제 범위와 일치한다.
+  - Tool 이름은 `other` 범주로만 남아 Vendor 고유 이름이 리포트에 들어가지 않는다.
+  - 한 data directory에 Codex와 함께 수집하면 리포트가 Source별로 분리한다(합계 22 Session =
+    OpenCode 2 + Codex 20, Message 9035 = 8 + 9027). 반복 `--source`가 각각을 정확히 걸러낸다.
+  - `DELETE_RAW_ONLY` 후에도 count는 유지하되 `EVIDENCE_REMOVED`와 보존/삭제 개수를 표시한다.
+  - `renormalize`는 OpenCode를 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고하며, Raw가
+    삭제된 Revision은 별도로 집계하고 기존 정규화를 유지한다.
+  - **변경된 Session만 새 Revision을 만든다.** `opencode run --continue`로 기존 Session 하나에
+    turn을 덧붙인 뒤 재수집하니 신규 1건·불변 2건이었고, 해당 SourceObject만 Revision 2개를
+    갖는다. Revision은 4개지만 리포트는 SourceObject별 최신 하나만 써서 Message를 12로 센다.
+    10+12=22이 아니다. 재수집을 사용량으로 오인하지 않는다는 계약을 실제 변경 데이터로 확인했다.
+  - **Fork 계보는 관측 불가능하다.** `opencode run --fork`로 만든 Session도 export의 session
+    정보에 parent·fork 계열 key가 전혀 없고(`id, slug, projectID, directory, path, title, agent,
+    model, version, summary, cost, tokens, time`), 4개 Session 사이에 공유되는 message id가 0건이다.
+    Claude fork를 잡아낸 Vendor 메시지 정체성 기법이 여기서는 성립하지 않으므로 관계를 만들지
+    않는 현재 동작이 옳다.
+  - export는 session·message 단위로 `tokens`와 `cost`를 담고 있다(예: input 8166, output 21,
+    cache read 16000). AXtory는 이를 `NOT_COLLECTED`로 두는데, 값이 없어서가 아니라 Session
+    history view를 권위 있는 token telemetry로 쓰지 않는다는 정책 때문이다. 부재가 아니라 정책이
+    이유이므로 `NOT_COLLECTED`가 맞는 코드다.
+  - 다만 OpenCode session 목록은 `directory`를 보고한다. Claude·Codex가 digest로 수집하는 작업
+    공간 맥락과 같은 값인데 AXtory는 읽지 않는다. 리포트는 `NOT_COLLECTED`로 표시한다.
+- **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가
+  installation을 `SOURCE_UNAVAILABLE`로 보고한다. Kimi 읽기는 파일 기반이라 실행 파일이 필요
+  없으므로 enumeration은 `AVAILABLE`이고, store는 있으나 session 디렉터리가 없어 0건이다. 세 값
+  모두 정확하다. `kimi -p`는 "No model configured"로 거절하며 대화형 `/login`을 요구한다.
+
+즉 세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증됐고, OpenCode는 content
+계약까지 실제 대화로 검증했다. Gemini와 Kimi의 content 계약만 자격증명 부재로 남아 있으며 계정을
+만들어 넣는 일은 사용자 결정이므로 하지 않았다.
+
 ## 후보 Source 조사: Kimi Code, GitHub Copilot CLI, Muse Code
 
 조사일: 2026-08-10. 아직 구현 대상이 아니며 Connector 편입 가능성만 판정한다.

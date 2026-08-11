@@ -40,3 +40,35 @@ rl.on("line", line => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a server error carries the server's own explanation, not just a code", async () => {
+  // An older App Server refuses a whole-thread read with "paginated threads do not support
+  // thread/read(includeTurns=true)". That text names the incompatibility; the bare code does not.
+  const directory = await mkdtemp(join(tmpdir(), "axtory-codex-error-"));
+  const executable = join(directory, "fake-codex");
+  const fake = `#!/usr/bin/env node
+const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", line => {
+ const message = JSON.parse(line);
+ if (message.method === "initialize") process.stdout.write(JSON.stringify({id:message.id,result:{}})+"\\n");
+ if (message.method === "thread/read") process.stdout.write(JSON.stringify({id:message.id,
+   error:{code:-32600,message:"paginated threads do not support thread/read(includeTurns=true)"}})+"\\n");
+});
+`;
+  try {
+    await writeFile(executable, fake, { mode: 0o700 });
+    await chmod(executable, 0o700);
+    const client = new CodexAppServerClient({ executablePath: executable, codexHome: directory });
+    try {
+      await assert.rejects(
+        client.readThread("thread"),
+        /-32600: paginated threads do not support thread\/read\(includeTurns=true\)/u,
+      );
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

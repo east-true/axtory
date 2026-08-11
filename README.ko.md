@@ -63,6 +63,13 @@ npm run spike:claude -- --output local-spike-results/claude.json
 Spike report에는 구조 metadata만 들어갑니다. 자세한 내용은
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md)를 참고하세요.
 
+아직 답변 중인 Claude Session을 수집하면 API가 반환한 view에 대해서는 완전한 것으로 기록되지만,
+끝난 대화보다 Message가 적을 수 있습니다. Claude는 turn이 끝나지 않았음을 나타내는 필드를 주지
+않고, 진행 중인 turn은 한 번 쓰고 버려진 Session과 모양이 완전히 같아 AXtory가 구분할 수
+없습니다. Codex는 thread가 turn 완료 시각을 갖기 때문에 `PARTIAL_UNSETTLED_TURN`으로 보고하지만
+Claude에는 대응 필드가 없습니다. Session이 끝난 뒤 다시 수집하면 완전한 Revision이 부분 Revision을
+대체합니다.
+
 ## Codex History
 
 Codex 수집은 사용자가 설치한 `codex` 실행 파일과 공식 App Server를 사용합니다. App Server가
@@ -208,8 +215,9 @@ node dist/src/cli.js report-usage \
 ```
 
 Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같은 방식으로 해싱하므로, 하나의
-`--workspace-dir`가 두 Source의 Session을 함께 선택합니다. 추가 AI Source는 작업 디렉터리를
-전혀 보고하지 않아 작업공간이 없으며 범위를 지정한 리포트에서 제외됩니다.
+`--workspace-dir`가 두 Source의 Session을 함께 선택합니다. 추가 AI Source는 작업공간을 기록하지
+않아 범위를 지정한 리포트에서 제외됩니다. OpenCode는 session 목록에 `directory`를 보고하므로
+가능하지만 AXtory가 아직 읽지 않습니다.
 
 리포트는 선택된 Session이 몇 개의 작업공간과 branch에 걸쳐 있는지도 셉니다. 이 필드가 생기기
 전에 수집된 Revision에는 작업공간이 없습니다. 범위를 지정한 리포트에서는 제외되고, 지정하지
@@ -217,9 +225,23 @@ Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같�
 
 다시 수집해도 채워지지 않습니다. Collector는 원천 수정 시각이 그대로면 기존 Revision을
 재사용하고 Revision의 정규화 관측치는 한 번만 기록되므로, 이후 변경되지 않는 Session은 처음
-수집될 때의 정규화를 유지합니다. Normalizer가 바뀐 뒤 새로 생기거나 수정된 Session만 작업공간을
-갖습니다. 새 `--data-dir`로 수집하면 완전히 채워진 리포트를 얻을 수 있으며, 기존 디렉터리의
-재정규화는 아직 지원하지 않습니다.
+수집될 때의 정규화를 유지합니다.
+
+채우는 것은 `renormalize`입니다. 보존된 raw 증거를 다시 읽어 파생 관측치를 제자리에서 재계산하고
+어떤 Normalizer가 만들었는지 기록합니다.
+
+```sh
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude --dry-run
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude
+```
+
+Revision을 새로 만들지 않습니다. Revision은 raw view의 hash로 식별되어 원천의 한 상태를 뜻하는데,
+Normalizer가 바뀌었다고 원천이 바뀐 것은 아니기 때문입니다. Raw 증거는 절대 다시 쓰지 않고 파생
+계층만 재계산합니다. Coverage는 내용이 아니라 그때의 읽기를 서술하므로 재계산하지 않고 그대로
+이어받습니다. 재정규화된 Revision을 입력으로 삼은 AnalysisRecord는 `INVALIDATED`가 됩니다.
+증거가 사라진 것이 아니라 다시 계산된 것이므로 `EVIDENCE_REMOVED`와 구분합니다. Raw 증거가 이미
+삭제된 Revision은 가진 정규화를 그대로 유지합니다. Claude와 Codex는 재정규화할 수 있으며, 추가 AI
+Source는 Vendor payload만 저장하므로 조용히 건너뛰지 않고 미지원으로 보고합니다.
 
 branch는 별도의 분모로 셉니다. 작업공간은 있으나 branch가 없는 Session이 있기 때문입니다.
 Git 작업 트리 밖에서 실행된 Codex thread는 branch를 보고하지 않는데, 이는 수집 누락이 아니라
@@ -264,6 +286,20 @@ match는 검증이 아니라 `INFERRED`입니다.
 node dist/src/cli.js analyze-rule --data-dir .local/axtory-claude \
   --revision-id revision_... --allow-conversation-content
 ```
+
+Claude는 fork를 선언하지 않습니다. Fork된 Session은 새 id를 받고 부모를 어떤 필드로도 밝히지
+않지만, 부모의 메시지를 Vendor가 부여한 id째로 복제하므로 계보는 내용 유사성이 아니라 정체성에서
+복원됩니다. `analyze-fork-lineage`가 이를 읽어 `FORKED_FROM`을 기록합니다.
+
+```sh
+node dist/src/cli.js analyze-fork-lineage --data-dir .local/axtory-claude
+```
+
+이 관계는 `OBSERVED`가 아니라 `INFERRED`입니다. Codex는 선언된 `forkedFromId`를 읽지만 이쪽은
+구현 세부에서 추론하기 때문입니다. 공유된 identity가 두 Session의 연속된 시작부를 이루고 자식이
+더 나중에 만들어진 경우에만 관계를 만들며, 그 외에는 애매한 쌍으로 보고하고 관계를 만들지
+않습니다. 메시지 identity가 내용 hash로 폴백한 Session은 제외하므로, 같은 첫 프롬프트로 시작한
+두 Session이 fork로 읽히지 않습니다. digest만 비교하므로 대화 내용은 읽지 않습니다.
 
 Local/remote model 연동은 Tool 권한이 없는 strict structured-result adapter를 사용합니다.
 AXtory는 model provider를 번들하거나 설정하지 않습니다. Local Git 수집에서는 path, diff,
