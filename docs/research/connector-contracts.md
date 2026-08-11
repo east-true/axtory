@@ -227,6 +227,34 @@ Sources:
 - No active thread appeared in the sample. That remains absence in the sample, not evidence that
   active threads do not occur.
 
+### Controlled resume, interruption, and concurrent read
+
+Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data directories.
+
+- `codex exec resume <id>` returns the **same** `thread_id` and appends to it. Resume extends a
+  thread rather than forking it, so it produces no relation, and no `relation:` observation appeared
+  in either collection.
+- Killing an `exec` mid-turn leaves a thread whose `turn.completed` never arrived. App Server does
+  not mark it: the collector recorded `COMPLETE_FOR_RETURNED_VIEW` and counted zero active views.
+- Collecting **while** an `exec` was still producing output found the running thread and likewise
+  recorded it as a complete view with two messages and `activeViews: 0`.
+- `thread.status.type` was `notLoaded` on all 29 collected views across both collections, including
+  the thread that was mid-turn at snapshot time. The value `active` that the collector and the spike
+  test for never appeared, and the `listed.updatedAt !== detail.updatedAt` fallback did not fire
+  either.
+- The read path explains why. AXtory backs the state database up into a private `CODEX_HOME`,
+  spawns a **fresh** App Server against that copy, and asks for `useStateDbOnly: true`. An `active`
+  status describes a thread live inside a running App Server, and this one is running nothing over a
+  frozen copy, so every thread is reported `notLoaded` by construction. The isolation that makes the
+  read safe is the same thing that hides liveness.
+- The `updatedAt` fallback is defeated for the same reason: list and detail both come from one
+  consistent backup, so they agree no matter what the live database is doing.
+- An in-flight thread is therefore indistinguishable from a finished one, and detecting one would
+  need a different mechanism — comparing the live state against the snapshot around the collection
+  rather than looking for a status the isolated read can never return.
+- Whether an App Server daemon reading live state reports `active` remains untested. It would not
+  change the collector, which reads a snapshot on purpose.
+
 ### Contract status
 
 | Contract | Current status | Handling |
@@ -236,9 +264,9 @@ Sources:
 | source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
 | `thread/read` returned turns | VERIFIED | Installed App Server returned full turns without resume/subscription. |
-| active thread consistency | VERIFIED_BY_TEST/PARTIAL | Active or changed list/detail metadata is partial; controlled live mutation remains pending. |
+| active thread consistency | VERIFIED_BY_TEST/UNREACHABLE | Synthetic active or changed metadata is still reported partial, but the real path cannot produce either: a fresh App Server reading a frozen copy with `useStateDbOnly: true` returned `notLoaded` for all 29 views including one read mid-turn, and one consistent backup makes the `updatedAt` comparison agree with itself. |
 | subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
-| fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. |
+| fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. A controlled `exec resume` is not a fork: it keeps the same thread id and emits no relation. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
 | internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
 | experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
