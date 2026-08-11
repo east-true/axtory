@@ -197,6 +197,22 @@ node dist/src/cli.js report-usage \
   --source codex
 ```
 
+`--workspace-dir` narrows a report to the sessions that ran in a given directory. Only the digest
+of the resolved path is compared, so neither the path nor the branch name enters the report, and a
+directory nobody worked in reports `SOURCE_UNAVAILABLE` rather than zero sessions:
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-claude \
+  --json-out .local/axtory-claude/usage-report.json \
+  --source claude --workspace-dir .
+```
+
+The report also counts how many distinct workspaces and branches the selected sessions ran in.
+Revisions collected before this field existed carry no workspace: they are excluded from a scoped
+report and counted as `sessionsWithoutWorkspace` in an unscoped one, which marks that section
+`PARTIAL`. Recollecting fills them in.
+
 Repeat `--source` to combine selected providers, or omit it to include every collected session
 source. A report reads exactly one local `--data-dir`: repeated `--source` combines providers only
 when those collectors wrote to that same directory. It does not federate separate directories such

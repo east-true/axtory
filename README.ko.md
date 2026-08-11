@@ -196,6 +196,22 @@ node dist/src/cli.js report-usage \
   --source codex
 ```
 
+`--workspace-dir`는 특정 디렉터리에서 실행된 Session으로 리포트 범위를 좁힙니다. 해석된 경로의
+digest만 비교하므로 경로나 branch 이름은 리포트에 들어가지 않으며, 아무도 작업하지 않은
+디렉터리는 0이 아니라 `SOURCE_UNAVAILABLE`로 보고합니다.
+
+```sh
+node dist/src/cli.js report-usage \
+  --data-dir .local/axtory-claude \
+  --json-out .local/axtory-claude/usage-report.json \
+  --source claude --workspace-dir .
+```
+
+리포트는 선택된 Session이 몇 개의 작업공간과 branch에 걸쳐 있는지도 셉니다. 이 필드가 생기기
+전에 수집된 Revision에는 작업공간이 없습니다. 범위를 지정한 리포트에서는 제외되고, 지정하지
+않은 리포트에서는 `sessionsWithoutWorkspace`로 세어 해당 항목을 `PARTIAL`로 표시합니다.
+다시 수집하면 채워집니다.
+
 여러 Provider를 합치려면 `--source`를 반복하고, 수집된 모든 Session Source를 포함하려면
 생략합니다. 리포트는 하나의 로컬 `--data-dir`만 읽습니다. 반복 `--source`는 각 Collector가
 같은 디렉터리에 기록한 경우에만 Provider를 합치며 `.local/axtory-claude`와
