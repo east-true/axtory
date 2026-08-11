@@ -301,8 +301,13 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
   Revision을 쓴 AnalysisRecord는 `INVALIDATED`가 된다. 실제 75 Revision Codex 디렉터리에서
   `codex-app-server/1` 전량을 `/2`로 올려 리포트가 `PARTIAL, 3 distinct, 58 sessions without one`
   에서 `AVAILABLE, 6 distinct`로 바뀌는 것을 확인했다.
-- **Claude 실제 active Session:** 목록 읽기와 재읽기 사이에 변경되는 통제된 Session이 없다.
-  구현과 합성 테스트는 있으나 실제 사례가 없다. Codex는 격리 snapshot을 읽으므로 해당하지 않는다.
+- **완료 — Claude 실제 active Session:** 실제 라이브 Session으로 확인했고 negative 결론이다.
+  진행 중인 turn을 읽으면 Message 1건, 끝난 뒤 3건이며 끝나지 않았다는 표식이 되는 필드가 없다.
+  이 모양은 이력의 다수를 차지하는 버려진 첫 메시지와 동일해 view 안에서 구분할 수 없고, Codex의
+  `completedAt` 판정에 해당하는 Claude 필드가 없다. `lastModified`는 실행 중 실제로 올라가지만
+  전체 수집 9회와 더 좁은 주기 67회 모두 발화하지 않았다. 실행 중 Session이 목록 index 0에 앉아
+  창이 가장 짧고 bounded 실행이 약 2회만 기록하기 때문이다. 진행 중 view가 완전하다고 기록될 수
+  있다는 Vendor 한계를 문서화했다.
 - **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**
 
 Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.

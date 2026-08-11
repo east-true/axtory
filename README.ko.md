@@ -63,6 +63,13 @@ npm run spike:claude -- --output local-spike-results/claude.json
 Spike report에는 구조 metadata만 들어갑니다. 자세한 내용은
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md)를 참고하세요.
 
+아직 답변 중인 Claude Session을 수집하면 API가 반환한 view에 대해서는 완전한 것으로 기록되지만,
+끝난 대화보다 Message가 적을 수 있습니다. Claude는 turn이 끝나지 않았음을 나타내는 필드를 주지
+않고, 진행 중인 turn은 한 번 쓰고 버려진 Session과 모양이 완전히 같아 AXtory가 구분할 수
+없습니다. Codex는 thread가 turn 완료 시각을 갖기 때문에 `PARTIAL_UNSETTLED_TURN`으로 보고하지만
+Claude에는 대응 필드가 없습니다. Session이 끝난 뒤 다시 수집하면 완전한 Revision이 부분 Revision을
+대체합니다.
+
 ## Codex History
 
 Codex 수집은 사용자가 설치한 `codex` 실행 파일과 공식 App Server를 사용합니다. App Server가

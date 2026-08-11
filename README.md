@@ -62,6 +62,13 @@ afterwards to restore it before building.
 The spike report contains structural metadata only. See
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md).
 
+A Claude session collected while it is still answering is recorded as a complete view of what the
+API returned, which may be fewer messages than the finished conversation. Claude exposes no field
+marking a turn as unfinished, and a running turn looks exactly like a session someone abandoned
+after one message, so AXtory cannot tell them apart. Codex reports this case as
+`PARTIAL_UNSETTLED_TURN` because a thread carries a turn completion time; Claude has no equivalent.
+Collecting again after the session finishes supersedes the partial revision with a complete one.
+
 ## Codex history
 
 Codex collection uses the user-installed `codex` executable and the official App Server. Because

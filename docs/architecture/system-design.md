@@ -411,6 +411,26 @@ Claude와 Codex는 raw view가 Normalizer 입력을 온전히 담아 재정규�
 raw에 Vendor payload만 있고 Normalizer가 읽는 파싱된 view가 없어 live adapter 없이는 입력을
 복원할 수 없으므로, 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고한다.
 
+Claude는 진행 중인 turn을 표시하지 않는다. 실행 중인 Session을 읽으면 user Message 1건만
+돌아오고, turn이 끝난 뒤 같은 Session은 3건(user·assistant·assistant)을 돌려준다. 어떤 Message도
+평소의 key 외에 아무것도 갖지 않으므로 turn이 끝나지 않았다는 표식이 없다. 게다가 이 모양은
+전체 이력 265 Session 중 152건을 차지하는 "버려진 첫 메시지"와 동일하다. 즉 실행 중인 turn과
+버려진 Session은 같은 view이며 view 안에서 구분할 방법이 없다. Codex는 turn의 `completedAt`으로
+snapshot 안에서 판정하지만 Claude에는 대응 필드가 없어 `PARTIAL_UNSETTLED_TURN`에 해당하는
+Claude 판정식이 존재하지 않는다.
+
+`lastModified` 비교는 죽은 신호는 아니다. 실행 중에 값이 실제로 올라간다(약 1분에 서로 다른 값
+3개). 다만 실제로는 발화하지 않았다. 라이브 Session 대상 전체 수집 9회와 더 좁은
+목록·읽기·재읽기 67회 모두 `sourceChangedViews: 0`이었다. 이유는 두 가지를 측정해 확인했다.
+`listSessions`가 최근 수정순으로 반환해 실행 중인 Session이 94건 목록에서 항상 index 0에
+앉으므로 목록 snapshot과 자기 재읽기 사이 간격이 가장 짧고, bounded 실행은 연속이 아니라 약 2회만
+기록한다. 따라서 쓰기가 밀리초 창 안에 들어와야 한다.
+
+결과적으로 AXtory는 진행 중인 Claude Session을 `COMPLETE_FOR_RETURNED_VIEW`로 기록할 수 있고
+이를 막을 신호가 없다. 모든 Claude Session을 `UNKNOWN`으로 두면 드문 오류를 상시 무용함과
+바꾸는 것이고, 최근성 임계값을 만드는 것은 coverage 어휘가 피하려는 바로 그 추측이다. Vendor
+한계로 기록하며, 이후 수집이 완전한 Revision으로 대체한다.
+
 Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거가 없는 경우다. 전체 로컬
 이력 265 Session·24917 Message를 구조만 읽고, 별도로 통제된 resume·fork Session을 만들어
 확인했다. Resume은 같은 `sessionId`를 유지하며 이어 붙으므로 맺을 관계 자체가 없다.
