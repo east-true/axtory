@@ -129,8 +129,11 @@ Claude의 resume·compaction·worktree·subagent와 Codex의 resume·fork·subag
 통제된 실제 사례로 확인했고, 대부분 관계가 없다는 negative 결론이었다. 다만 다음은 아직 열려
 있다. Claude의 실제 active Session 중 수집(목록 읽기와 재읽기 사이의 변경 감지)은 통제된
 사례가 없다. Codex는 격리 snapshot을 읽으므로 같은 질문이 구조적으로 성립하지 않지만 Claude는
-live 상태를 다시 읽으므로 성립한다. Claude fork를 `FORKED_FROM`으로 발행할지, Codex
-`gitInfo.originUrl`을 저장소 정체성으로 수집할지도 결정하지 않았다.
+live 상태를 다시 읽으므로 성립한다.
+
+Claude fork는 `FORKED_FROM`을 `INFERRED`로 발행하기로 결정했고 아직 구현하지 않았다. Codex처럼
+선언된 필드를 읽는 것이 아니라 Vendor 메시지 정체성에서 추론하므로 Derivation을 구분한다. Codex
+`gitInfo.originUrl`은 수집하지 않는다.
 
 ## 7. 초기 MVP 이후에도 제외하는 것
 

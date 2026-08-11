@@ -409,12 +409,32 @@ Worktree는 계보가 아니라 작업공간 맥락이다. 통제된 worktree Se
 전환과 worktree가 같은 모양으로 나타나므로 저장소 정체성 없이는 구분할 수 없다.
 
 Codex는 이 점에서 다르다. Thread view의 `gitInfo`가 `originUrl`을 노출하므로 저장소 정체성을
-읽을 수 있다. 다만 원격 URL이라 해싱해도 수집 여부는 별도 판단이 필요하고, Claude 쪽에 대응
-필드가 없어 Source 간 비대칭이 생긴다. 현재 두 Connector는 `cwd`와 branch의 digest만 읽으며
-`originUrl` 수집은 열린 결정이다.
+읽을 수 있다. 수집하지 않기로 한 이유는 아래 결정에 적었다. 두 Connector는 `cwd`와 branch의
+digest만 읽는다.
 
 Fork는 다르다. `--fork-session`은 새 `sessionId`를 만들고 어떤 필드로도 부모를 선언하지 않지만,
 부모의 메시지를 Vendor가 부여한 `uuid`째로 복제하며 `session_id`만 자식으로 고쳐 쓴다. 따라서
-Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 가능하다. 다만 이를 감지하려면 현재
-Session 단위 Normalizer가 하지 않는 Session 간 비교가 필요하고, 선언된 필드가 아니라 구현
-세부에서 추론하는 관계이므로 `FORKED_FROM` 생성 여부는 열린 설계 결정이다.
+Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 가능하다.
+
+실제 이력 85 Session·14744 Message를 정체성만으로 읽어 이 신호가 Fork를 실제로 분리하는지
+측정했다. uuid 14576개가 단일 Session에만 나타났고, 공유된 168개가 만든 Session 쌍은 가능한
+3570쌍 중 **한 쌍뿐**이었다. 그 쌍은 짧은 쪽 168개가 긴 쪽 618개의 **0번부터 연속된 prefix**였고
+`cwd`와 `gitBranch`도 같았으며, prefix를 가진 쪽이 약 22시간 먼저 만들어졌다. prefix가 아닌
+부분 겹침은 0쌍이었다. 즉 오탐이 없고 방향도 두 신호가 일치한다.
+
+**결정:** `FORKED_FROM`을 생성하되 Codex와 같은 방식으로는 하지 않는다. 아직 구현하지 않았다.
+
+- Derivation은 `OBSERVED`가 아니라 `INFERRED`다. Codex는 선언된 `forkedFromId`를 읽으므로 Vendor의
+  주장이지만, Claude는 아무것도 선언하지 않고 구현 세부가 남긴 흔적에서 추론한다. 둘을 같은 종류의
+  사실로 제시하면 Claude 쪽을 과장하는 것이고, Derivation 어휘는 정확히 이 차이를 위해 있다.
+- Normalizer가 아니라 분석 단계에 둔다. 비교 대상이 Session 간이고 Normalizer는 한 번에 한 Session만
+  보기 때문이다.
+- 판정식은 겹침이 아니라 정확한 prefix 포함이다. 0번부터 연속이어야 하고 prefix를 가진 쪽이 더
+  오래되어야 한다. 애매한 경우는 추측 대신 관계 없음이 된다.
+- Vendor가 fork 시 uuid를 재발급하면 신호가 사라져 관계가 생성되지 않는다. 이는 coverage 어휘로
+  표현 가능한 미탐이며, 복구 불가능한 오탐보다 낫다.
+
+Codex `gitInfo.originUrl`은 같은 부류로 보였지만 결론이 다르다. **수집하지 않는다.** worktree와
+branch 전환을 구분해 준다는 이점이 있으나, Claude에 대응 필드가 없어 Source 간 비대칭이 생기고,
+로컬 경로와 달리 원격 저장소를 가리키는 식별자라 해싱해도 보존 근거가 약하다. 무엇보다 이 구분을
+요구하는 제품 요구가 아직 없다.
