@@ -71,11 +71,10 @@ and hashes only, no content — settled the lineage rows the earlier bounded sam
 - Message `type` took only `user`, `assistant`, and `system` while `includeSystemMessages: true`
   was set, and `message.session_id` never differed from the owning session. Neither compaction nor
   continuation is marked.
-- The lineage-versus-duplication question was decided directly. 25 opening prompts recur across
-  sessions and the largest group holds 9, but no session's message sequence is a prefix of
-  another's in any of the 113 multi-message sessions. A resumed conversation therefore does not
-  reappear as a new session replaying its history, and inferring lineage from repeated openings
-  would have manufactured 25 relations that the evidence does not support.
+- 25 opening prompts recur across sessions and the largest group holds 9, but no session's message
+  sequence is a prefix of another's in any of the 113 multi-message sessions. Repeated openings are
+  therefore duplicate content, and treating them as lineage would have manufactured 25 relations.
+  The controlled run below shows what a real fork looks like and why this history contains none.
 - 152 of the 265 sessions hold exactly one user message, no assistant reply, and no `customTitle`.
   These are abandoned openings. They are genuine sessions, but they dominate the per-session
   distributions in the usage report, where the median message count is 1.
@@ -85,6 +84,27 @@ and hashes only, no content — settled the lineage rows the earlier bounded sam
 - `cwd` (12 distinct) and `gitBranch` (22 distinct) are the only workspace signals the session view
   carries. AXtory does not currently read either, and both are path- and name-bearing, so capturing
   them would require hashing under the same rule the Local Git collector already follows.
+
+### Controlled resume and fork session
+
+Three bounded `claude -p` runs on CLI 2.1.227 with SDK 0.3.220, read back through the official API.
+The isolated `CLAUDE_CONFIG_DIR` probe cannot be used here because an isolated root has no
+credentials, so the runs used the default root and are real sessions.
+
+- Resuming with `--resume` returned the **same** `sessionId` and appended to it. A resumed
+  conversation is one session that grew, which is why no prefix pair exists in the local history and
+  why no resume relation is available or needed.
+- `--fork-session` minted a **new** `sessionId`. Neither session view names the other: both expose
+  the same ten keys, `getSessionInfo` adds nothing, and no message in the child contains the parent
+  id anywhere in its JSON.
+- The child nevertheless replays the parent. Its first 6 message contents matched the parent's 6
+  exactly, and all 6 carried the **same `uuid`** the parent had. The copied messages' `session_id`
+  is rewritten to the child, so the shared `uuid` is the only surviving link.
+- A fork is therefore observable through Vendor-assigned message identity rather than through
+  content resemblance, and detecting it needs a cross-session comparison the per-session normalizer
+  does not currently perform. Whether AXtory should emit `FORKED_FROM` from shared message identity
+  is an open design decision: the identity is Vendor data, but the relation is inferred from an
+  implementation detail rather than read from a declared field.
 
 ### Controlled live emission
 
@@ -114,7 +134,7 @@ byte-for-byte with `rollback-live`.
 | `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
 | Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
-| Fork lineage in history reads | VERIFIED/NEGATIVE | No session view field references another session, and no session's message sequence is a prefix of another's. Duplicate openings exist without lineage, so inferring from content would have invented relations. |
+| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. |
 | Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
 | Custom config behavior in SDK reads | VERIFIED | Isolated empty root returned zero sessions and did not expose default-root history. |
 | SDK 0.3.220 with CLI 2.1.226 | VERIFIED | Local bounded read succeeded; no broader compatibility matrix is inferred. |
@@ -135,7 +155,7 @@ session becomes a fixture.
 | Message UUID/ID exclusion | VERIFIED_BY_TEST | Fake identifiers and sensitive values cannot enter the report. |
 | Message order | NEEDS_SPIKE | Controlled fixture must establish ordering and pagination overlap behavior. |
 | ToolUse/ToolResult presence | VERIFIED | Only allowlisted type labels are retained; payloads are excluded. |
-| Resume and fork lineage | VERIFIED/NEGATIVE | The distinction this row asked for was made against real data: 25 opening prompts recur across sessions (largest group 9), yet 0 of 113 multi-message sessions is a message-prefix of another. Duplication is present, lineage is not. |
+| Resume and fork lineage | VERIFIED | Controlled sessions separated the two. Resume keeps the same `sessionId` and grows it, so there is nothing to relate. Fork mints a new `sessionId` whose messages repeat the parent's `uuid` values, which is Vendor-assigned identity rather than duplicate content. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |

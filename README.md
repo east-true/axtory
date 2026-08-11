@@ -56,6 +56,9 @@ npm install --no-save --omit=optional @anthropic-ai/claude-agent-sdk@0.3.220
 npm run spike:claude -- --output local-spike-results/claude.json
 ```
 
+`--omit=optional` also drops the TypeScript compiler's platform binary, so run `npm install`
+afterwards to restore it before building.
+
 The spike report contains structural metadata only. See
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md).
 

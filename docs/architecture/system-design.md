@@ -383,9 +383,15 @@ Contract Test로 검증한다.
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
 
-Claude의 resume·fork·compaction·subagent 관계도 미구현이 아니라 Vendor 근거가 없는 경우다.
-전체 로컬 이력 265 Session·24917 Message를 구조만 읽어 확인했다. Session view의 아홉 키 중
-다른 Session을 가리키는 것이 없고, `parent_agent_id`·`parent_tool_use_id`는 모든 메시지에서
-null이며, 43회의 `Agent` 호출은 별도 Session을 만들지 않는다. 시작 프롬프트는 25개 그룹에서
-반복되지만 어떤 Session도 다른 Session의 메시지 접두사가 아니므로, 중복을 계보로 해석하면
-근거 없는 관계를 만들게 된다. 따라서 관계를 생성하지 않는 현재 동작이 규칙에 맞다.
+Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거가 없는 경우다. 전체 로컬
+이력 265 Session·24917 Message를 구조만 읽고, 별도로 통제된 resume·fork Session을 만들어
+확인했다. Resume은 같은 `sessionId`를 유지하며 이어 붙으므로 맺을 관계 자체가 없다.
+`parent_agent_id`·`parent_tool_use_id`는 모든 메시지에서 null이고 43회의 `Agent` 호출도 별도
+Session을 만들지 않는다. 메시지 `type`은 user·assistant·system뿐이라 compaction 경계 표식이
+없다.
+
+Fork는 다르다. `--fork-session`은 새 `sessionId`를 만들고 어떤 필드로도 부모를 선언하지 않지만,
+부모의 메시지를 Vendor가 부여한 `uuid`째로 복제하며 `session_id`만 자식으로 고쳐 쓴다. 따라서
+Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 가능하다. 다만 이를 감지하려면 현재
+Session 단위 Normalizer가 하지 않는 Session 간 비교가 필요하고, 선언된 필드가 아니라 구현
+세부에서 추론하는 관계이므로 `FORKED_FROM` 생성 여부는 열린 설계 결정이다.

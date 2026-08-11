@@ -56,6 +56,10 @@ npm install --no-save --omit=optional @anthropic-ai/claude-agent-sdk@0.3.220
 npm run spike:claude -- --output local-spike-results/claude.json
 ```
 
+`--omit=optional`은 TypeScript 컴파일러의 플랫폼 바이너리까지 제거하므로, build 전에
+`npm install`을 다시 실행해 복구합니다.
+
+
 Spike report에는 구조 metadata만 들어갑니다. 자세한 내용은
 [`docs/research/connector-contracts.md`](docs/research/connector-contracts.md)를 참고하세요.
 
