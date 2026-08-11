@@ -268,7 +268,7 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 1. **완료:** `missing-fields`, `tool-heavy`, `corrupted-source`, `unsupported-version` 합성 Fixture
 2. **완료:** pagination·ordering Contract Test
 3. **완료:** custom `CLAUDE_CONFIG_DIR` 격리 child-process Spike
-4. **부분 완료:** active 변경 감지; resume·fork·compaction·subagent는 전체 로컬 이력 구조 읽기로 Vendor 근거 부재를 확인해 닫았고, worktree 통제 세션과 resume 이후 2회차 수집은 후속
+4. **완료:** active 변경 감지와 resume·fork·compaction·worktree·subagent 통제 계약. 전체 로컬 이력 구조 읽기와 통제된 resume·fork·worktree Session으로 확인했다. resume은 같은 `sessionId`를 연장하고, fork만 Vendor `uuid` 공유로 관측되며, worktree는 계보가 아닌 작업공간 맥락이다
 5. **완료:** 공식 Claude Local History를 Revision/Normalization/Analysis/Output 경로에 연결
 6. **완료:** Phase 4~7과 선행 신뢰·삭제 계약
 7. **완료:** Phase 8 Codex App Server Connector와 Public SPI 후보 감사

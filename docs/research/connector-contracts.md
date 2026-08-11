@@ -106,6 +106,23 @@ credentials, so the runs used the default root and are real sessions.
   is an open design decision: the identity is Vendor data, but the relation is inferred from an
   implementation detail rather than read from a declared field.
 
+### Controlled worktree session
+
+A fourth run created a session inside a real `git worktree` of this repository.
+
+- The session is returned by `listSessions` and carries the worktree's own `cwd` and its branch in
+  `gitBranch`. Nothing relates it to a session in the main working tree, so a worktree is workspace
+  context and not a lineage relation.
+- `includeWorktrees` did not gate the result: the session appeared with the flag true, false, and
+  unset, on an 80-session page. AXtory forwards `true`, which remains the safe choice, but this
+  probe gives no evidence that the flag excludes anything.
+- `cwd` alone cannot identify a worktree. Across the 265-session history the same `cwd` hosts many
+  branches — one directory accounts for 31 distinct `(cwd, gitBranch)` pairs across 12 directories —
+  because branch switching and worktrees both surface as a directory plus a branch name. Separating
+  them would need repository identity, which the session view does not expose.
+- Both fields are path- and name-bearing, so capturing them at all would require hashing under the
+  rule the Local Git collector already follows.
+
 ### Controlled live emission
 
 A bounded session ran with `claude --settings <isolated file>` against a temporary project, so the
@@ -159,7 +176,7 @@ session becomes a fixture.
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
-| Git worktree | PARTIAL_CAPABILITY | Official option is forwarded with `includeWorktrees: true`; controlled session-bearing worktree remains pending. |
+| Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree, and AXtory reads neither field. |
 | Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 | HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |

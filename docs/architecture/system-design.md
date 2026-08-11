@@ -371,8 +371,7 @@ Contract Test로 검증한다.
 
 ### 미구현 또는 추가 Spike 필요
 
-- Claude worktree와 resume 성장 확인: 통제된 worktree 세션과, resume 이후 2회차 수집으로만
-  확인할 수 있는 `sessionId` 연장 여부
+- Claude Session의 `cwd`·`gitBranch` 작업공간 맥락 수집 여부 결정 (해싱 필요)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
 - 통제된 실제 Codex active thread와 fork 사례, 추가 버전 호환성
@@ -389,6 +388,12 @@ Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거�
 `parent_agent_id`·`parent_tool_use_id`는 모든 메시지에서 null이고 43회의 `Agent` 호출도 별도
 Session을 만들지 않는다. 메시지 `type`은 user·assistant·system뿐이라 compaction 경계 표식이
 없다.
+
+Worktree는 계보가 아니라 작업공간 맥락이다. 통제된 worktree Session은 그 worktree의 `cwd`와
+`gitBranch`를 그대로 갖고 반환되지만 본 작업 트리의 Session과 이어주는 키가 없다.
+`includeWorktrees`는 true·false·미지정에서 모두 같은 결과였다. 게다가 265 Session 이력에서
+같은 `cwd`가 여러 branch를 갖는다(12개 디렉터리에 31개 `(cwd, gitBranch)` 조합). 즉 branch
+전환과 worktree가 같은 모양으로 나타나므로 저장소 정체성 없이는 구분할 수 없다.
 
 Fork는 다르다. `--fork-session`은 새 `sessionId`를 만들고 어떤 필드로도 부모를 선언하지 않지만,
 부모의 메시지를 Vendor가 부여한 `uuid`째로 복제하며 `session_id`만 자식으로 고쳐 쓴다. 따라서
