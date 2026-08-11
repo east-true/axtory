@@ -90,6 +90,9 @@ node dist/src/cli.js collect-codex \
 
 `--page-size`와 `--max-pages`는 active·archived 열거 범위를 제한합니다. 상한 도달, 반복 cursor,
 중복, active thread, compaction event, non-full turn view는 명시적으로 partial 상태를 유지합니다.
+App Server가 반환을 거절한 thread는 unreadable로 세어 Vendor 이유와 함께
+`PARTIAL_UNREADABLE_THREAD`로 보고하므로, 한 건의 거절이 이미 수집한 thread를 버리지 않습니다.
+채널 자체가 끊긴 경우에는 침묵을 coverage로 보고하지 않고 실패로 끝냅니다.
 Raw prompt, response, tool payload는 민감한 로컬 근거이므로 data directory를 공개하지 마세요.
 
 ## Claude Code Local History

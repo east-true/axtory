@@ -405,9 +405,16 @@ compared call by call.
   deliberately avoids the experimental paged turn API.
 - **0.147.0 is a floor, not a preference.** Below it, any thread large enough to be paginated
   cannot be collected.
-- The failure is also all-or-nothing: one unreadable thread aborts the run, so the 35 readable ones
-  are lost rather than reported as partial coverage. Treating an unreadable thread as explicit
-  partial coverage would fit the coverage vocabulary better and is not implemented.
+- The failure used to be all-or-nothing: one unreadable thread aborted the run, so every thread
+  already collected was lost. A thread the App Server refuses is now counted as unreadable and
+  stepped over, the run reports `PARTIAL_UNREADABLE_THREAD`, and the Vendor's own reason is carried
+  in `unreadableReasons`. Re-run against 0.146.1, the same collection that previously produced
+  nothing now keeps 23 of 25 threads and names the two it could not read.
+- Only a refusal is treated this way. A timeout, invalid NDJSON, an exceeded protocol limit, or a
+  dead process all mean the channel itself is unhealthy, and those still abort: continuing past one
+  of them would keep questioning a server that can no longer answer and report the resulting
+  silence as coverage. The client distinguishes them with a typed `CodexRequestError` raised only
+  when the server answered with an error response.
 - The client used to raise a bare `-32600`, which named nothing. It now carries the server's own
   message, which is what identified this in the first place.
 
@@ -417,6 +424,7 @@ compared call by call.
 | --- | --- | --- |
 | App Server lifecycle | VERIFIED | Isolated state snapshot is mandatory; direct original-home startup is rejected by design. |
 | Version compatibility | VERIFIED | 0.147.0 is the floor. 0.146.1 shares the methods, source-kind vocabulary, and response shape, but refuses `thread/read(includeTurns=true)` for paginated threads (5 of 40 real threads), which AXtory always requests. Untested above 0.147.0. |
+| Unreadable thread | VERIFIED | A refused thread is counted, explained, and stepped over as `PARTIAL_UNREADABLE_THREAD`; against 0.146.1 the run keeps 23 of 25 threads instead of discarding all of them. Channel-level faults still abort rather than reporting silence as coverage. |
 | `thread/list` cursor pagination | VERIFIED_BY_TEST/PARTIAL | Cursor advance, repeat detection, max-page bound, duplicate handling, archive split tested. |
 | source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |

@@ -16,6 +16,26 @@ interface RpcMessage {
   error?: { code?: number; message?: string };
 }
 
+/**
+ * The server answered, and its answer was a refusal of this one request.
+ *
+ * This is deliberately distinct from every other failure the client can raise. A timeout, invalid
+ * NDJSON, an exceeded protocol limit, or a dead process all mean the channel itself is unhealthy,
+ * and continuing past one of those would keep asking questions of something that can no longer
+ * answer — producing a confident-looking result built on nothing. An error *response* is the
+ * opposite: the App Server is alive and well enough to say no to this thread specifically, which a
+ * caller can reasonably record and move past.
+ */
+export class CodexRequestError extends Error {
+  readonly code: number | null;
+
+  constructor(message: string, code: number | null) {
+    super(message);
+    this.name = "CodexRequestError";
+    this.code = code;
+  }
+}
+
 interface PendingRequest {
   resolve(value: unknown): void;
   reject(error: Error): void;
@@ -171,8 +191,9 @@ export class CodexAppServerClient implements CodexThreadApi {
       const detail = typeof message.error.message === "string" && message.error.message.length > 0
         ? `: ${message.error.message.slice(0, 300)}`
         : "";
-      pending.reject(new Error(
+      pending.reject(new CodexRequestError(
         `Codex App Server request failed with code ${message.error.code ?? "unknown"}${detail}`,
+        message.error.code ?? null,
       ));
     } else {
       pending.resolve(message.result);

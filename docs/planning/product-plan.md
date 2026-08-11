@@ -172,8 +172,10 @@ Vendor 메시지 정체성에서 추론하므로 Derivation을 구분한다. Cod
 
 분모를 알 수 없으면 백분율을 만들지 않는다. `COMPLETE_FOR_RETURNED_VIEW`,
 `PARTIAL_PAGINATION`, `PARTIAL_COMPACTION`, `PARTIAL_RETENTION`, `PARTIAL_SOURCE_CHANGED`,
-`PARTIAL_UNSETTLED_TURN`, `UNKNOWN` 같은 상태를 쓴다. 끝나지 않은 Turn을 담은 view는 완전하다고
-표시하지 않는다.
+`PARTIAL_UNSETTLED_TURN`, `PARTIAL_UNREADABLE_THREAD`, `UNKNOWN` 같은 상태를 쓴다. 끝나지 않은
+Turn을 담은 view는 완전하다고 표시하지 않는다. 원천이 개별 항목 반환을 거절하면 이미 수집한
+항목을 버리지 않고 읽지 못한 수와 이유를 남긴다. 다만 채널 자체가 불건전하면 침묵을 coverage로
+보고하지 않고 실패로 끝낸다.
 
 ## 9. 데이터 소유와 기본 정책
 

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { collectCodexHistory } from "../../../src/connectors/codex/collector.js";
+import { CodexRequestError } from "../../../src/connectors/codex/app-server.js";
 import type { CodexDiscovery } from "../../../src/connectors/codex/discovery.js";
 import type { CodexThread, CodexThreadApi } from "../../../src/connectors/codex/types.js";
 import { AxtoryDatabase } from "../../../src/core/storage.js";
@@ -173,6 +174,79 @@ test("active Codex threads are reread and remain partial", async () => {
     assert.equal((await run()).coverage, "PARTIAL_SOURCE_CHANGED");
     assert.equal((await run()).coverage, "PARTIAL_SOURCE_CHANGED");
     assert.equal(reads, 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a refused thread is partial coverage, not a discarded run", async () => {
+  // One thread the App Server declines must not cost the caller the threads it did read.
+  const readable = { ...thread("READABLE"), id: "thread-ok" };
+  const api: CodexThreadApi = {
+    async listThreads(params) {
+      return params.archived
+        ? { data: [], nextCursor: null }
+        : {
+          data: [
+            { ...readable, turns: [] },
+            { ...thread("REFUSED"), id: "thread-refused", turns: [] },
+          ],
+          nextCursor: null,
+        };
+    },
+    async readThread(threadId) {
+      if (threadId === "thread-refused") {
+        throw new CodexRequestError(
+          "Codex App Server request failed with code -32600: paginated threads do not support " +
+            "thread/read(includeTurns=true)",
+          -32600,
+        );
+      }
+      return readable;
+    },
+    async close() {},
+  };
+  const directory = await mkdtemp(join(tmpdir(), "axtory-codex-unreadable-"));
+  try {
+    const output = await collectCodexHistory(api, discovery, {
+      dataDirectory: directory, jsonOutputPath: join(directory, "out.json"),
+      now: () => new Date("2026-03-01T00:00:00.000Z"), randomId: () => "fixed",
+    });
+    assert.equal(output.coverage, "PARTIAL_UNREADABLE_THREAD");
+    assert.equal(output.threads.unreadableThreads, 1);
+    assert.equal(output.threads.revisionsCreated, 1, "the readable thread must still be collected");
+    assert.match(output.threads.unreadableReasons[0]!, /paginated threads do not support/u);
+    // The refusal explains itself in the export, but carries no conversation content.
+    const written = await readFile(join(directory, "out.json"), "utf8");
+    assert.equal(written.includes("REFUSED"), false);
+    assert.equal(written.includes("thread-refused"), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unhealthy channel still aborts instead of reporting silence as coverage", async () => {
+  // A dead or desynchronized server answers nothing. Stepping past that would keep questioning it
+  // and report the resulting emptiness as a successful partial run.
+  const api: CodexThreadApi = {
+    async listThreads(params) {
+      return params.archived
+        ? { data: [], nextCursor: null }
+        : { data: [{ ...thread("X"), turns: [] }], nextCursor: null };
+    },
+    async readThread() {
+      throw new Error("Codex App Server returned invalid NDJSON");
+    },
+    async close() {},
+  };
+  const directory = await mkdtemp(join(tmpdir(), "axtory-codex-broken-"));
+  try {
+    await assert.rejects(
+      collectCodexHistory(api, discovery, {
+        dataDirectory: directory, jsonOutputPath: join(directory, "out.json"),
+      }),
+      /invalid NDJSON/u,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

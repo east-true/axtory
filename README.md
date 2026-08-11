@@ -89,7 +89,10 @@ node dist/src/cli.js collect-codex \
 
 `--page-size` and `--max-pages` bound both active and archived enumeration. A bound hit, repeated
 cursor, duplicate, active thread, compaction event, or non-full turn view remains explicitly
-partial. Raw prompts, responses, and tool payloads are sensitive local evidence; do not publish
+partial. A thread the App Server refuses to return is counted as unreadable and reported as
+`PARTIAL_UNREADABLE_THREAD` with the Vendor's reason, so one refusal does not discard the threads
+already collected; a broken channel still fails the run rather than reporting silence as coverage.
+Raw prompts, responses, and tool payloads are sensitive local evidence; do not publish
 the data directory.
 
 ## Claude Code Local History

@@ -17,6 +17,7 @@ import {
   type CodexMessageCoverage,
 } from "./normalizer.js";
 import { listAllCodexThreads } from "./pagination.js";
+import { CodexRequestError } from "./app-server.js";
 import type { CodexThread, CodexThreadApi } from "./types.js";
 
 const RAW_THREAD_LIMIT_BYTES = 64 * 1024 * 1024;
@@ -35,7 +36,7 @@ export interface CodexCollectionOutput {
   collectionRunId: string;
   source: "CODEX";
   coverage: "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_COMPACTION"
-    | "PARTIAL_SOURCE_CHANGED" | "PARTIAL_UNSETTLED_TURN";
+    | "PARTIAL_SOURCE_CHANGED" | "PARTIAL_UNSETTLED_TURN" | "PARTIAL_UNREADABLE_THREAD";
   discovery: {
     environmentType: string;
     installation: string;
@@ -50,6 +51,10 @@ export interface CodexCollectionOutput {
     unsettledTurnViews: number;
     compactedViews: number;
     partialItemViews: number;
+    /** Threads the App Server refused to return, so they contributed no view at all. */
+    unreadableThreads: number;
+    /** Distinct Vendor reasons for those refusals, bounded and content-free. */
+    unreadableReasons: readonly string[];
   };
   metrics: readonly {
     key: string;
@@ -119,6 +124,8 @@ export async function collectCodexHistory(
     let partialItemViews = 0;
     let sourceChangedViews = 0;
     let unsettledTurnViews = 0;
+    let unreadableThreads = 0;
+    const unreadableReasons = new Set<string>();
     for (const summary of listed.items) {
       const sourceObjectId = stableId("source", { sourceType: "CODEX", threadId: summary.id });
       const sourceModifiedAt = epochSeconds(summary.updatedAt);
@@ -142,7 +149,18 @@ export async function collectCodexHistory(
         revisionsUnchanged += 1;
         continue;
       }
-      const detail = await api.readThread(summary.id);
+      // A refusal of this one thread is recorded and stepped over; anything else means the channel
+      // is unhealthy and still aborts, because continuing would keep questioning a server that can
+      // no longer answer and report the silence as a result.
+      let detail: CodexThread;
+      try {
+        detail = await api.readThread(summary.id);
+      } catch (error) {
+        if (!(error instanceof CodexRequestError)) throw error;
+        unreadableThreads += 1;
+        unreadableReasons.add(error.message.slice(0, 200));
+        continue;
+      }
       const coverage = viewCoverage(summary, detail);
       if (coverage === "PARTIAL_SOURCE_CHANGED") {
         activeViews += 1;
@@ -208,7 +226,11 @@ export async function collectCodexHistory(
     }));
     database.transaction(() => database.insertAnalysisRecords(records));
     database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
-    const coverage = listed.coverage !== "COMPLETE_FOR_RETURNED_VIEW"
+    // An unreadable thread ranks first: every other partial state still returned a view, while this
+    // one contributed nothing at all, so it is the most important thing about the run.
+    const coverage = unreadableThreads > 0
+      ? "PARTIAL_UNREADABLE_THREAD"
+      : listed.coverage !== "COMPLETE_FOR_RETURNED_VIEW"
       ? "PARTIAL_PAGINATION"
       : sourceChangedViews > 0
         ? "PARTIAL_SOURCE_CHANGED"
@@ -238,6 +260,8 @@ export async function collectCodexHistory(
         unsettledTurnViews,
         compactedViews,
         partialItemViews,
+        unreadableThreads,
+        unreadableReasons: [...unreadableReasons],
       },
       metrics: records.map((item) => ({
         key: item.key,
@@ -254,6 +278,8 @@ export async function collectCodexHistory(
         "App Server runs against a temporary SQLite backup because startup writes runtime state even for read methods.",
         "Thread rollout content is read through thread/read; AXtory does not parse Codex JSONL storage.",
         "Active, compacted, or non-full item views remain explicitly partial.",
+        "A thread the App Server refuses to return is counted as unreadable rather than collected; " +
+          "the run stays partial instead of discarding the threads it did read.",
         "Conversation and tool content stays in the local raw blob store and is excluded from this output.",
       ],
     };
@@ -286,6 +312,12 @@ export function renderCodexCollection(output: CodexCollectionOutput): string {
     `Threads returned: ${output.threads.returned}`,
     `Revisions created: ${output.threads.revisionsCreated}`,
     `Revisions unchanged: ${output.threads.revisionsUnchanged}`,
+    ...(output.threads.unreadableThreads === 0
+      ? []
+      : [
+        `Unreadable threads: ${output.threads.unreadableThreads} (no view collected)`,
+        ...output.threads.unreadableReasons.map((reason) => `  reason: ${reason}`),
+      ]),
   ];
   for (const metric of output.metrics) {
     lines.push(metric.availability === "AVAILABLE"
