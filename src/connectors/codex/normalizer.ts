@@ -9,7 +9,8 @@ export type CodexMessageCoverage =
   | "COMPLETE_FOR_RETURNED_VIEW"
   | "PARTIAL_PAGINATION"
   | "PARTIAL_COMPACTION"
-  | "PARTIAL_SOURCE_CHANGED";
+  | "PARTIAL_SOURCE_CHANGED"
+  | "PARTIAL_UNSETTLED_TURN";
 
 function epochSeconds(value: unknown): string | null {
   return isoFromEpoch(value, "SECONDS");

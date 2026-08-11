@@ -249,9 +249,16 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
   read safe is the same thing that hides liveness.
 - The `updatedAt` fallback is defeated for the same reason: list and detail both come from one
   consistent backup, so they agree no matter what the live database is doing.
-- An in-flight thread is therefore indistinguishable from a finished one, and detecting one would
-  need a different mechanism — comparing the live state against the snapshot around the collection
-  rather than looking for a status the isolated read can never return.
+- The evidence needed is already inside the snapshot. Every observed turn carries a completion time,
+  and both the killed thread and the one read mid-run ended with `status: "interrupted"` and
+  `completedAt: null`, while settled turns showed `completed` or `failed` with a timestamp. Coverage
+  is now decided on `completedAt === null` rather than on a live status, so no second read, no
+  timing window, and no access to the live database is required.
+- The predicate is `completedAt`, not the status vocabulary, so a new status value cannot silently
+  reintroduce a false completeness claim.
+- An interrupted turn and a still-running turn remain indistinguishable through an isolated read.
+  That is the correct outcome: both are views of a turn that never finished, and the collector's job
+  is to stop claiming the view is complete rather than to guess which case it saw.
 - Whether an App Server daemon reading live state reports `active` remains untested. It would not
   change the collector, which reads a snapshot on purpose.
 
@@ -264,7 +271,7 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
 | source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
 | `thread/read` returned turns | VERIFIED | Installed App Server returned full turns without resume/subscription. |
-| active thread consistency | VERIFIED_BY_TEST/UNREACHABLE | Synthetic active or changed metadata is still reported partial, but the real path cannot produce either: a fresh App Server reading a frozen copy with `useStateDbOnly: true` returned `notLoaded` for all 29 views including one read mid-turn, and one consistent backup makes the `updatedAt` comparison agree with itself. |
+| active thread consistency | VERIFIED | `status` and `updatedAt` cannot signal liveness through an isolated read, so coverage is decided on turn completion instead: a thread holding a turn with `completedAt: null` is `PARTIAL_UNSETTLED_TURN`. Confirmed against a real interrupted thread and a real mid-run one. |
 | subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
 | fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. A controlled `exec resume` is not a fork: it keeps the same thread id and emits no relation. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |

@@ -10,6 +10,7 @@ export interface SessionProjection {
     | "PARTIAL_PAGINATION"
     | "PARTIAL_COMPACTION"
     | "PARTIAL_SOURCE_CHANGED"
+    | "PARTIAL_UNSETTLED_TURN"
     | "UNKNOWN";
 }
 
@@ -34,7 +35,8 @@ export function projectSession(observations: readonly NormalizedObservation[]): 
       .filter((item) => item.stableKey.startsWith("tool-occurrence:"))
       .map((item) => item.id),
     messageCoverage: coverage === "COMPLETE_FOR_RETURNED_VIEW" || coverage === "PARTIAL_PAGINATION" ||
-      coverage === "PARTIAL_COMPACTION" || coverage === "PARTIAL_SOURCE_CHANGED"
+      coverage === "PARTIAL_COMPACTION" || coverage === "PARTIAL_SOURCE_CHANGED" ||
+      coverage === "PARTIAL_UNSETTLED_TURN"
       ? coverage
       : "UNKNOWN",
   };

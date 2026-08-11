@@ -374,9 +374,8 @@ Contract Test로 검증한다.
 - Claude Session의 `cwd`·`gitBranch` 작업공간 맥락 수집 여부 결정 (해싱 필요)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
-- Codex active thread 판정 근거 교체: 격리 읽기(일관 백업 + 새 App Server + `useStateDbOnly`)
-  에서는 `active`도 `updatedAt` 불일치도 구조적으로 나올 수 없다. 실행 중 스레드를 표시하려면
-  수집 전후로 live state와 snapshot을 비교하는 방식이 필요하다
+- App Server daemon이 live state를 읽을 때 `active`를 보고하는지 (수집기는 의도적으로 snapshot을
+  읽으므로 결과와 무관하다)
 - Codex 추가 버전 호환성
 - Muse Code Connector: 읽기 경로는 확인했으나 export 필드명이 미공개
 - 자격증명이 있는 실제 세션에서의 Gemini/OpenCode/Kimi content 검증

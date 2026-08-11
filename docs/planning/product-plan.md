@@ -162,7 +162,9 @@ active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다
 ### Coverage
 
 분모를 알 수 없으면 백분율을 만들지 않는다. `COMPLETE_FOR_RETURNED_VIEW`,
-`PARTIAL_PAGINATION`, `PARTIAL_COMPACTION`, `PARTIAL_RETENTION`, `UNKNOWN` 같은 상태를 쓴다.
+`PARTIAL_PAGINATION`, `PARTIAL_COMPACTION`, `PARTIAL_RETENTION`, `PARTIAL_SOURCE_CHANGED`,
+`PARTIAL_UNSETTLED_TURN`, `UNKNOWN` 같은 상태를 쓴다. 끝나지 않은 Turn을 담은 view는 완전하다고
+표시하지 않는다.
 
 ## 9. 데이터 소유와 기본 정책
 

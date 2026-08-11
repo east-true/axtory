@@ -100,6 +100,58 @@ test("Codex collector is incremental and exports no content", async () => {
   }
 });
 
+test("a turn that never completed keeps the view partial", async () => {
+  // App Server reports an interrupted or still-running turn with completedAt null and status
+  // "interrupted"; the isolated snapshot read cannot tell the two apart and must not call either
+  // view complete.
+  const detail = thread("synthetic");
+  detail.turns[0]!.status = "interrupted";
+  detail.turns[0]!.completedAt = null;
+  const api: CodexThreadApi = {
+    async listThreads(params) {
+      return params.archived ? { data: [], nextCursor: null } : { data: [{ ...detail, turns: [] }], nextCursor: null };
+    },
+    async readThread() { return detail; },
+    async close() {},
+  };
+  const directory = await mkdtemp(join(tmpdir(), "axtory-codex-unsettled-"));
+  try {
+    let sequence = 0;
+    const output = await collectCodexHistory(api, discovery, {
+      dataDirectory: directory, jsonOutputPath: join(directory, "output.json"),
+      randomId: () => `unsettled-${++sequence}`,
+    });
+    assert.equal(output.coverage, "PARTIAL_UNSETTLED_TURN");
+    assert.equal(output.threads.unsettledTurnViews, 1);
+    assert.equal(output.threads.activeViews, 0, "status never says active through a snapshot read");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a completed turn is still reported complete", async () => {
+  const detail = thread("synthetic");
+  const api: CodexThreadApi = {
+    async listThreads(params) {
+      return params.archived ? { data: [], nextCursor: null } : { data: [{ ...detail, turns: [] }], nextCursor: null };
+    },
+    async readThread() { return detail; },
+    async close() {},
+  };
+  const directory = await mkdtemp(join(tmpdir(), "axtory-codex-settled-"));
+  try {
+    let sequence = 0;
+    const output = await collectCodexHistory(api, discovery, {
+      dataDirectory: directory, jsonOutputPath: join(directory, "output.json"),
+      randomId: () => `settled-${++sequence}`,
+    });
+    assert.equal(output.coverage, "COMPLETE_FOR_RETURNED_VIEW");
+    assert.equal(output.threads.unsettledTurnViews, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("active Codex threads are reread and remain partial", async () => {
   const detail = thread("synthetic");
   detail.status = { type: "active" };
