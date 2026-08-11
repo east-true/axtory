@@ -163,7 +163,17 @@ export class CodexAppServerClient implements CodexThreadApi {
     clearTimeout(pending.timer);
     this.pending.delete(message.id);
     if (message.error) {
-      pending.reject(new Error(`Codex App Server request failed with code ${message.error.code ?? "unknown"}`));
+      // The server explains itself; dropping that text leaves a bare code that says nothing about
+      // what to do. An older App Server refusing a whole-thread read reports "paginated threads do
+      // not support thread/read(includeTurns=true)", which names the incompatibility, while the
+      // code alone reads as a generic protocol fault. The text is Vendor diagnostics rather than
+      // conversation content, so it is bounded and passed through instead of being discarded.
+      const detail = typeof message.error.message === "string" && message.error.message.length > 0
+        ? `: ${message.error.message.slice(0, 300)}`
+        : "";
+      pending.reject(new Error(
+        `Codex App Server request failed with code ${message.error.code ?? "unknown"}${detail}`,
+      ));
     } else {
       pending.resolve(message.result);
     }

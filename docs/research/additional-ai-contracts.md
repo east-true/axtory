@@ -85,6 +85,26 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 - Vendor가 출력 형식을 바꾸면 조용히 빈 결과로 처리하지 않고 schema/format error로 실패한다.
   합성 테스트는 향후 모든 Vendor 버전이나 사용자의 전체 history를 보증하지 않는다.
 
+### 자격증명 기반 content 검증 재시도 (2026-08-11)
+
+세 Source 모두 다시 시도했고 **여전히 미검증이다.** 자격증명이 없어서이며, 이 환경에서 만들 수
+없다. 무엇이 막혔는지는 확정했다.
+
+- **Gemini CLI 0.54.4:** 설치돼 있으나 auth 미설정이다. `--list-sessions`가 `GEMINI_API_KEY`
+  등을 요구하며 실패한다. AXtory는 이때 exit 1로 명시 종료하고 출력 파일을 쓰지 않는다. 0건으로
+  위장하지 않는다는 계약을 실제로 재확인했다.
+- **OpenCode 1.18.16:** 설치돼 있고 credential 0건, session 0건이다. 로컬 store를 직접 확인해도
+  `session`·`message` 테이블이 모두 비어 있다. AXtory는 `AVAILABLE`에 0건을 보고하는데, 원천을
+  읽을 수 있고 실제로 비어 있으므로 옳다. Gemini의 hard fail과 구분된다는 점이 핵심이다. 다만
+  export 본문은 Session이 없어 여전히 검증하지 못했다.
+- **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가
+  installation을 `SOURCE_UNAVAILABLE`로 보고한다. Kimi 읽기는 파일 기반이라 실행 파일이 필요
+  없으므로 enumeration은 `AVAILABLE`이고, store는 있으나 session 디렉터리가 없어 0건이다. 세 값
+  모두 정확하다. `kimi -p`는 "No model configured"로 거절하며 대화형 `/login`을 요구한다.
+
+즉 세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증됐고, content 계약만
+자격증명 부재로 남아 있다. 계정을 만들어 넣는 일은 사용자 결정이므로 하지 않았다.
+
 ## 후보 Source 조사: Kimi Code, GitHub Copilot CLI, Muse Code
 
 조사일: 2026-08-10. 아직 구현 대상이 아니며 Connector 편입 가능성만 판정한다.

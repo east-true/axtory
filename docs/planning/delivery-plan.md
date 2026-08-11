@@ -308,7 +308,16 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
   전체 수집 9회와 더 좁은 주기 67회 모두 발화하지 않았다. 실행 중 Session이 목록 index 0에 앉아
   창이 가장 짧고 bounded 실행이 약 2회만 기록하기 때문이다. 진행 중 view가 완전하다고 기록될 수
   있다는 Vendor 한계를 문서화했다.
-- **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**
+- **완료 — Codex 추가 버전 호환성:** 0.146.1을 임시 prefix에 설치해 사용자의 전역 0.147.0을
+  건드리지 않고 비교했다. method·`sourceKinds` 어휘·응답 shape는 같지만, AXtory가 항상 보내는
+  `thread/read(includeTurns: true)`를 0.146.1이 paginated thread에 대해 거절한다(실제 40건 중
+  5건). 따라서 **0.147.0이 하한**이다. 이 과정에서 client가 서버 error message를 버리고 코드만
+  남기던 결함을 고쳤다. 0.147.0 초과 버전은 미검증이다.
+- **미완료(자격증명 부재) — Gemini/OpenCode/Kimi content 검증:** 세 Source 모두 재시도했고
+  discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증했으나, 자격증명이 없어 대화 본문
+  계약은 여전히 합성 test 근거다. Gemini는 auth 미설정, OpenCode는 credential·session 0건,
+  Kimi는 대화형 `/login` 요구다. 계정 연결은 사용자 결정이라 수행하지 않았다. 근거는
+  `research/additional-ai-contracts.md`에 있다.
 
 Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.
 

@@ -388,11 +388,35 @@ and `gitBranch`.
   path in the exported report.
 - Normalizer version moves to `codex-app-server/2`.
 
+### Version compatibility
+
+Codex 0.146.1 was installed into a throwaway prefix and driven through the same collector, with
+discovery pointed at it by `env` so the user's global 0.147.0 was never replaced. The two were then
+compared call by call.
+
+- `initialize`, `thread/list`, and `thread/read` all exist on both, the accepted `sourceKinds`
+  vocabulary is identical, and the `thread/list` envelope is the same `data`/`nextCursor`/
+  `backwardsCursor` shape. A listed thread carries 26 keys on 0.147.0 against 25 on 0.146.1, an
+  additive difference that changes nothing AXtory reads.
+- The break is `thread/read` with `includeTurns: true`, which AXtory always sends. On 0.146.1, 5 of
+  40 real threads were refused with "paginated threads do not support
+  `thread/read(includeTurns=true)`". The same 40 all read on 0.147.0. Support for reading a
+  paginated thread whole therefore arrived in 0.147.0, and AXtory depends on it because it
+  deliberately avoids the experimental paged turn API.
+- **0.147.0 is a floor, not a preference.** Below it, any thread large enough to be paginated
+  cannot be collected.
+- The failure is also all-or-nothing: one unreadable thread aborts the run, so the 35 readable ones
+  are lost rather than reported as partial coverage. Treating an unreadable thread as explicit
+  partial coverage would fit the coverage vocabulary better and is not implemented.
+- The client used to raise a bare `-32600`, which named nothing. It now carries the server's own
+  message, which is what identified this in the first place.
+
 ### Contract status
 
 | Contract | Current status | Handling |
 | --- | --- | --- |
 | App Server lifecycle | VERIFIED | Isolated state snapshot is mandatory; direct original-home startup is rejected by design. |
+| Version compatibility | VERIFIED | 0.147.0 is the floor. 0.146.1 shares the methods, source-kind vocabulary, and response shape, but refuses `thread/read(includeTurns=true)` for paginated threads (5 of 40 real threads), which AXtory always requests. Untested above 0.147.0. |
 | `thread/list` cursor pagination | VERIFIED_BY_TEST/PARTIAL | Cursor advance, repeat detection, max-page bound, duplicate handling, archive split tested. |
 | source kind coverage | VERIFIED | Current generated schema kinds are explicit; future unknown kinds require compatibility review. |
 | `useStateDbOnly` | VERIFIED | Forced on every list call; metadata repair scan is never requested. |
