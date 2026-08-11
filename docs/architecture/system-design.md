@@ -380,8 +380,8 @@ Contract Test로 검증한다.
   읽으므로 결과와 무관하다)
 - Codex 0.147.0 초과 버전 호환성 (0.146.1은 하한 미만으로 확인)
 - Muse Code Connector: 읽기 경로는 확인했으나 export 필드명이 미공개
-- 자격증명이 있는 실제 세션에서의 Gemini/OpenCode/Kimi content 검증 (세 Source 모두 자격증명
-  부재로 막혀 있으며 discovery와 실패 처리는 실제 설치본으로 검증했다)
+- 자격증명이 있는 실제 세션에서의 Gemini·Kimi content 검증 (OpenCode는 실제 대화로 검증 완료)
+- OpenCode session 목록의 `directory`를 작업공간 맥락으로 수집할지 결정
 - Public Connector SPI 안정화·게시 결정
 
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가

@@ -288,7 +288,7 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
 10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
-11. **다음:** 아래 네 가지
+11. **완료:** 아래 네 가지. 자격증명이 필요한 content 검증만 환경 제약으로 남았다
 
 - **완료 — Claude `FORKED_FROM`:** `analyze-fork-lineage`가 분석 단계에서 `INFERRED` 관계를
   만든다. 판정식은 두 Session의 0번부터 연속된 공통 시작부와 생성 시각 순서를 모두 요구하며,
@@ -313,10 +313,12 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
   `thread/read(includeTurns: true)`를 0.146.1이 paginated thread에 대해 거절한다(실제 40건 중
   5건). 따라서 **0.147.0이 하한**이다. 이 과정에서 client가 서버 error message를 버리고 코드만
   남기던 결함을 고쳤다. 0.147.0 초과 버전은 미검증이다.
-- **미완료(자격증명 부재) — Gemini/OpenCode/Kimi content 검증:** 세 Source 모두 재시도했고
-  discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증했으나, 자격증명이 없어 대화 본문
-  계약은 여전히 합성 test 근거다. Gemini는 auth 미설정, OpenCode는 credential·session 0건,
-  Kimi는 대화형 `/login` 요구다. 계정 연결은 사용자 결정이라 수행하지 않았다. 근거는
+- **부분 완료 — Gemini/OpenCode/Kimi content 검증:** **OpenCode는 실제 대화 2건으로 content
+  계약을 검증했다.** Vendor store의 session 2·message 8과 수집 결과가 일치하고 tool 3건을 얻으며,
+  role과 `partTypes`가 OpenCode 고유 구조를 보존하고, 재수집 신규 Revision 0건, Session 제목·id·
+  경로·projectId 유출 0건이며, Rule Semantic과 Usage Report까지 통과한다. Gemini(auth 미설정)와
+  Kimi(대화형 `/login` 요구)는 자격증명이 없어 남았고 계정 연결은 사용자 결정이라 하지 않았다.
+  세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증했다. 근거는
   `research/additional-ai-contracts.md`에 있다.
 
 Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.

@@ -87,23 +87,36 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 
 ### 자격증명 기반 content 검증 재시도 (2026-08-11)
 
-세 Source 모두 다시 시도했고 **여전히 미검증이다.** 자격증명이 없어서이며, 이 환경에서 만들 수
-없다. 무엇이 막혔는지는 확정했다.
+**OpenCode는 실제 대화로 검증했고, Gemini와 Kimi는 자격증명이 없어 여전히 미검증이다.**
+막힌 이유는 각각 확정했다.
 
 - **Gemini CLI 0.54.4:** 설치돼 있으나 auth 미설정이다. `--list-sessions`가 `GEMINI_API_KEY`
   등을 요구하며 실패한다. AXtory는 이때 exit 1로 명시 종료하고 출력 파일을 쓰지 않는다. 0건으로
   위장하지 않는다는 계약을 실제로 재확인했다.
-- **OpenCode 1.18.16:** 설치돼 있고 credential 0건, session 0건이다. 로컬 store를 직접 확인해도
-  `session`·`message` 테이블이 모두 비어 있다. AXtory는 `AVAILABLE`에 0건을 보고하는데, 원천을
-  읽을 수 있고 실제로 비어 있으므로 옳다. Gemini의 hard fail과 구분된다는 점이 핵심이다. 다만
-  export 본문은 Session이 없어 여전히 검증하지 못했다.
+- **OpenCode 1.18.16: 실제 대화로 content 계약을 검증했다.** 처음에는 session 0건이어서
+  `AVAILABLE`에 0건을 보고했고(원천을 읽을 수 있고 실제로 비어 있으므로 옳으며, Gemini의 hard
+  fail과 구분되는 것이 핵심이다), 이후 사용자가 실제 Session 2건을 만들어 아래를 확인했다.
+  - Vendor store의 session 2·message 8과 수집 결과가 정확히 일치하고, tool occurrence 3건을
+    얻었다. `metadataOnlyViews` 0건, `structuredViews` 2건으로 export 본문이 실제로 구조화됐다.
+  - Message role이 실제 USER/ASSISTANT로 정규화되고 `partTypes`가 OpenCode 고유 구조
+    (`step-start`·`reasoning`·`tool`·`text`·`step-finish`)를 그대로 보존한다. 합성 fixture가
+    아니라 실제 shape다.
+  - 재수집 시 신규 Revision 0건이다.
+  - Session 제목("새 세션 시작" 등), session id, 프로젝트 경로, projectId 중 어느 것도 JSON
+    출력과 정규화 관측치에 남지 않는다. 내용은 digest뿐이다.
+  - 실제 content로 Rule Semantic Analyzer가 동작하고, `--allow-conversation-content` 없이는
+    동의 게이트가 거절한다.
+  - Usage Report까지 통과한다(Session 2, Message 8 = user 3·assistant 5, Tool 3).
+  - 다만 OpenCode session 목록은 `directory`를 보고한다. Claude·Codex가 digest로 수집하는 작업
+    공간 맥락과 같은 값인데 AXtory는 읽지 않는다. 리포트는 `NOT_COLLECTED`로 표시한다.
 - **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가
   installation을 `SOURCE_UNAVAILABLE`로 보고한다. Kimi 읽기는 파일 기반이라 실행 파일이 필요
   없으므로 enumeration은 `AVAILABLE`이고, store는 있으나 session 디렉터리가 없어 0건이다. 세 값
   모두 정확하다. `kimi -p`는 "No model configured"로 거절하며 대화형 `/login`을 요구한다.
 
-즉 세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증됐고, content 계약만
-자격증명 부재로 남아 있다. 계정을 만들어 넣는 일은 사용자 결정이므로 하지 않았다.
+즉 세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증됐고, OpenCode는 content
+계약까지 실제 대화로 검증했다. Gemini와 Kimi의 content 계약만 자격증명 부재로 남아 있으며 계정을
+만들어 넣는 일은 사용자 결정이므로 하지 않았다.
 
 ## 후보 Source 조사: Kimi Code, GitHub Copilot CLI, Muse Code
 
