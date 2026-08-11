@@ -291,10 +291,11 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
 11. **다음:** 아래 네 가지
 
-- **Claude `FORKED_FROM` 구현:** 발행하기로 결정했다. 실제 이력 85 Session에서 공유 uuid 쌍이
-  3570쌍 중 1쌍이고 정확한 prefix 형태이며 오탐이 0이었다. Normalizer가 아니라 분석 단계에서
-  `INFERRED`로 만들고, 판정식은 0번부터의 연속 prefix와 생성 시각 순서를 모두 요구한다. 근거와
-  결정 이유는 `architecture/system-design.md`와 `research/connector-contracts.md`에 있다.
+- **완료 — Claude `FORKED_FROM`:** `analyze-fork-lineage`가 분석 단계에서 `INFERRED` 관계를
+  만든다. 판정식은 두 Session의 0번부터 연속된 공통 시작부와 생성 시각 순서를 모두 요구하며,
+  공통 시작부 밖에서 identity를 공유하면 추측 대신 관계를 만들지 않는다. 내용에서 파생된
+  identity를 가진 Session은 제외해 같은 첫 프롬프트가 fork로 둔갑하지 않게 했다. 실제 86 Session
+  수집에서 후보 1쌍·관계 1건·애매 0건으로 프로브 결과를 재현했다.
 - **재정규화:** Normalizer 버전이 올라도 기존 Revision은 다시 정규화되지 않는다. Revision을 새로
   만들 것인지 파생 관측치만 재계산할 것인지 정해야 하는 열린 설계 결정이다. 현재는 새
   `--data-dir` 수집이 유일한 우회다.

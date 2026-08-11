@@ -369,6 +369,7 @@ Contract Test로 검증한다.
 - 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
   Analytics Console/JSON 리포트
 - Claude Session과 Codex thread의 작업공간 맥락을 digest로 수집하는 `--workspace-dir` 범위 지정
+- Vendor 메시지 정체성으로 Claude fork를 찾아 `FORKED_FROM`을 `INFERRED`로 내는 분석 pass
 
 ### 미구현 또는 추가 Spike 필요
 
@@ -422,7 +423,8 @@ Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 �
 `cwd`와 `gitBranch`도 같았으며, prefix를 가진 쪽이 약 22시간 먼저 만들어졌다. prefix가 아닌
 부분 겹침은 0쌍이었다. 즉 오탐이 없고 방향도 두 신호가 일치한다.
 
-**결정:** `FORKED_FROM`을 생성하되 Codex와 같은 방식으로는 하지 않는다. 아직 구현하지 않았다.
+**결정:** `FORKED_FROM`을 생성하되 Codex와 같은 방식으로는 하지 않는다. `analyze-fork-lineage`로
+구현했다.
 
 - Derivation은 `OBSERVED`가 아니라 `INFERRED`다. Codex는 선언된 `forkedFromId`를 읽으므로 Vendor의
   주장이지만, Claude는 아무것도 선언하지 않고 구현 세부가 남긴 흔적에서 추론한다. 둘을 같은 종류의
@@ -433,6 +435,16 @@ Fork는 내용 유사성이 아니라 Vendor 메시지 정체성으로 관측 �
   오래되어야 한다. 애매한 경우는 추측 대신 관계 없음이 된다.
 - Vendor가 fork 시 uuid를 재발급하면 신호가 사라져 관계가 생성되지 않는다. 이는 coverage 어휘로
   표현 가능한 미탐이며, 복구 불가능한 오탐보다 낫다.
+- 구현하면서 content fallback 경로를 막았다. Normalizer는 `uuid`가 없으면 메시지 index와 내용의
+  hash로 identity를 만드는데, 그러면 같은 첫 프롬프트로 시작한 두 Session이 identity를 공유해
+  전체 이력 읽기가 경고했던 바로 그 조작된 계보가 된다. 이제 `sourceMessageIdentityFrom`을
+  기록하고, 내용에서 파생된 identity를 하나라도 가진 Session은 비교 대상에서 제외한다. 이 필드가
+  생기기 전 Revision은 표식이 없으며 Vendor 부여로 간주하는데, 측정한 14744 Message가 예외 없이
+  `uuid`를 가졌기 때문이다. Normalizer는 `claude-official-history/3`이다.
+
+실제 86 Session 수집에 돌려 프로브와 정확히 같은 결과를 얻었다. 후보 1쌍, 관계 1건, 애매한 쌍
+0건, 방향 불명 0건이며 168 Message 부모와 약 22시간 뒤 만들어진 618 Message 자식이 168개의
+공통 시작부를 공유한다.
 
 Codex `gitInfo.originUrl`은 같은 부류로 보였지만 결론이 다르다. **수집하지 않는다.** worktree와
 branch 전환을 구분해 준다는 이점이 있으나, Claude에 대응 필드가 없어 Source 간 비대칭이 생기고,

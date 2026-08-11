@@ -265,6 +265,20 @@ node dist/src/cli.js analyze-rule --data-dir .local/axtory-claude \
   --revision-id revision_... --allow-conversation-content
 ```
 
+Claude는 fork를 선언하지 않습니다. Fork된 Session은 새 id를 받고 부모를 어떤 필드로도 밝히지
+않지만, 부모의 메시지를 Vendor가 부여한 id째로 복제하므로 계보는 내용 유사성이 아니라 정체성에서
+복원됩니다. `analyze-fork-lineage`가 이를 읽어 `FORKED_FROM`을 기록합니다.
+
+```sh
+node dist/src/cli.js analyze-fork-lineage --data-dir .local/axtory-claude
+```
+
+이 관계는 `OBSERVED`가 아니라 `INFERRED`입니다. Codex는 선언된 `forkedFromId`를 읽지만 이쪽은
+구현 세부에서 추론하기 때문입니다. 공유된 identity가 두 Session의 연속된 시작부를 이루고 자식이
+더 나중에 만들어진 경우에만 관계를 만들며, 그 외에는 애매한 쌍으로 보고하고 관계를 만들지
+않습니다. 메시지 identity가 내용 hash로 폴백한 Session은 제외하므로, 같은 첫 프롬프트로 시작한
+두 Session이 fork로 읽히지 않습니다. digest만 비교하므로 대화 내용은 읽지 않습니다.
+
 Local/remote model 연동은 Tool 권한이 없는 strict structured-result adapter를 사용합니다.
 AXtory는 model provider를 번들하거나 설정하지 않습니다. Local Git 수집에서는 path, diff,
 commit message, 작성자 신원을 제외합니다. 사용자가 선택한 session link는 시간 기반

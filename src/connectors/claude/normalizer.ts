@@ -3,7 +3,7 @@ import type { NormalizedObservation } from "../../core/records.js";
 import { isoFromEpoch, isoTimestamp } from "../../core/time.js";
 import type { ClaudeSessionInfo, ClaudeSessionMessage } from "./history-api.js";
 
-export const CLAUDE_NORMALIZER_VERSION = "claude-official-history/2";
+export const CLAUDE_NORMALIZER_VERSION = "claude-official-history/3";
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -64,7 +64,12 @@ export function normalizeClaudeSession(
   });
   messages.forEach((message, messageIndex) => {
     const occurredAt = sourceTimestamp(message);
-    const messageIdentity = sha256(message.uuid ?? canonicalJson({ messageIndex, message: message.message }));
+    // Where the identity came from decides what may be concluded from two sessions sharing one.
+    // A Vendor `uuid` is globally unique, so sharing it is evidence of a copy. The fallback hashes
+    // the message index and content, so two sessions that merely opened with the same prompt would
+    // share it. Recording the provenance keeps a fork analysis from reading the second as the first.
+    const vendorUuid = message.uuid ?? null;
+    const messageIdentity = sha256(vendorUuid ?? canonicalJson({ messageIndex, message: message.message }));
     add({
       stableKey: `message:${messageIndex}:${messageIdentity}`,
       kind: "CONTENT",
@@ -75,6 +80,7 @@ export function normalizeClaudeSession(
         role: message.type,
         contentIdentity: sha256(canonicalJson(message.message ?? null)),
         sourceMessageIdentity: messageIdentity,
+        sourceMessageIdentityFrom: vendorUuid === null ? "CONTENT_FALLBACK" : "VENDOR_UUID",
         ...(message.parent_tool_use_id
           ? { parentToolUseIdentity: sha256(message.parent_tool_use_id) }
           : {}),

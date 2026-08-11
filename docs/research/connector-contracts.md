@@ -129,8 +129,8 @@ in both existence and direction.
 
 ### Decision: emit `FORKED_FROM` for Claude, as an INFERRED relation
 
-Recorded here so it is not re-litigated. AXtory should emit the relation, but not the way Codex
-does, and it is not yet implemented.
+Recorded here so it is not re-litigated. AXtory emits the relation, but not the way Codex does.
+Implemented as `analyze-fork-lineage`.
 
 - **Derivation is `INFERRED`, not `OBSERVED`.** Codex reads a declared `forkedFromId`, so its
   relation is a Vendor claim. Claude declares nothing; the link survives only because the fork
@@ -149,6 +149,20 @@ does, and it is not yet implemented.
   disappears and the relation stops being emitted. That is a false negative, which the coverage
   vocabulary can express, rather than a false positive, which it cannot repair.
 - Only identity digests are compared, so the pass stays content-free like the rest of the pipeline.
+
+The content fallback was closed as part of implementing this. The Claude normalizer derives a
+message identity from the Vendor `uuid`, falling back to a hash of the message index and content
+when the key is absent. Two sessions that merely opened with the same prompt would then share a
+fallback identity, which is precisely the manufactured lineage the earlier history read warned
+about. The normalizer now records `sourceMessageIdentityFrom`, and a session holding any
+content-derived identity is excluded from the pass rather than compared. Revisions collected before
+that field existed carry no marker and are treated as Vendor-assigned, which matches the 14744
+messages measured to carry a `uuid` without exception. Normalizer version moves to
+`claude-official-history/3`.
+
+Run against a real 86-session collection, the pass reproduced the probe exactly: 1 candidate pair,
+1 relation, 0 ambiguous, 0 without a direction, with a 168-message shared opening between a
+168-message parent and a 618-message child created about 22 hours later.
 
 ### Controlled worktree session
 
@@ -195,7 +209,7 @@ byte-for-byte with `rollback-live`.
 | `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
 | Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. Still open, and the Codex resolution does not transfer: Codex reads a frozen snapshot, so liveness is hidden by construction and coverage is decided on turn completion instead, whereas the Claude collector re-reads live state with `getSessionInfo` after the message read and compares `lastModified`. That comparison can fire, but no controlled session has been observed changing during a read. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
-| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. A read of 85 real sessions found one shared-uuid pair out of 3570, with exact prefix shape and no ambiguous case, so `FORKED_FROM` is decided as an `INFERRED` relation emitted by an analysis pass; not yet implemented. |
+| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. A read of 85 real sessions found one shared-uuid pair out of 3570, with exact prefix shape and no ambiguous case, so `FORKED_FROM` is emitted as an `INFERRED` relation by the `analyze-fork-lineage` pass. |
 | Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
 | Custom config behavior in SDK reads | VERIFIED | Isolated empty root returned zero sessions and did not expose default-root history. |
 | SDK 0.3.220 with CLI 2.1.226 | VERIFIED | Local bounded read succeeded; no broader compatibility matrix is inferred. |

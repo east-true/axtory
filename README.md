@@ -267,6 +267,21 @@ node dist/src/cli.js analyze-rule --data-dir .local/axtory-claude \
   --revision-id revision_... --allow-conversation-content
 ```
 
+Claude does not declare a fork. A forked session gets a new id and names no parent, but it replays
+the parent's messages keeping their Vendor-assigned ids, so lineage is recoverable from identity
+rather than from resemblance. `analyze-fork-lineage` reads that and records `FORKED_FROM`:
+
+```sh
+node dist/src/cli.js analyze-fork-lineage --data-dir .local/axtory-claude
+```
+
+The relation is `INFERRED`, not `OBSERVED` — Codex reads a declared `forkedFromId`, while this is
+read out of an implementation detail. A relation is emitted only when the shared identities form a
+contiguous opening of both sessions and the child was created later; anything else is reported as
+ambiguous and left alone. Sessions whose message identity fell back to a content hash are excluded,
+so two sessions that merely opened with the same prompt cannot be read as a fork. Only digests are
+compared, so the pass reads no conversation content.
+
 Local/remote model integrations use a strict tool-less structured-result adapter; AXtory does not
 bundle or configure a model provider. Local Git collection excludes paths, diffs, commit messages,
 and author identities. An optional user-selected session link is temporal correlation only:
