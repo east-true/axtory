@@ -54,6 +54,38 @@ Sources:
 - None of the bounded returned messages had a populated `parent_tool_use_id`. This is absence in
   the sampled view, not evidence that subagent lineage is unsupported.
 
+### Lineage read across a full local history
+
+A structural read of the complete retained local history — 265 sessions and 24917 messages, keys
+and hashes only, no content — settled the lineage rows the earlier bounded sample could not.
+
+- The session view exposes nine keys: `sessionId`, `createdAt`, `lastModified`, `fileSize`, `cwd`,
+  `gitBranch`, `summary`, `firstPrompt`, and `customTitle`. None of them references another
+  session, so there is no field from which a session-level relation could be read.
+- `parent_agent_id` and `parent_tool_use_id` are present on all 24917 messages and null on every
+  one. The earlier "absence in the sampled view" holds across the whole history.
+- The history contains 43 `Agent` invocations, so subagents did run. They produced no additional
+  session and no populated parent. Claude keeps subagent work inside the invoking session as tool
+  occurrences, which is the opposite of Codex, where a spawn becomes its own thread that names its
+  parent. There is no Claude equivalent of `SUBAGENT_OF` to record.
+- Message `type` took only `user`, `assistant`, and `system` while `includeSystemMessages: true`
+  was set, and `message.session_id` never differed from the owning session. Neither compaction nor
+  continuation is marked.
+- The lineage-versus-duplication question was decided directly. 25 opening prompts recur across
+  sessions and the largest group holds 9, but no session's message sequence is a prefix of
+  another's in any of the 113 multi-message sessions. A resumed conversation therefore does not
+  reappear as a new session replaying its history, and inferring lineage from repeated openings
+  would have manufactured 25 relations that the evidence does not support.
+- 152 of the 265 sessions hold exactly one user message, no assistant reply, and no `customTitle`.
+  These are abandoned openings. They are genuine sessions, but they dominate the per-session
+  distributions in the usage report, where the median message count is 1.
+- Only one collection run exists, so every session has one revision. Whether resuming extends an
+  existing `sessionId` rather than creating a new one needs a second collection taken after a
+  controlled resume; a single snapshot cannot show growth.
+- `cwd` (12 distinct) and `gitBranch` (22 distinct) are the only workspace signals the session view
+  carries. AXtory does not currently read either, and both are path- and name-bearing, so capturing
+  them would require hashing under the same rule the Local Git collector already follows.
+
 ### Controlled live emission
 
 A bounded session ran with `claude --settings <isolated file>` against a temporary project, so the
@@ -79,11 +111,11 @@ byte-for-byte with `rollback-live`.
 | --- | --- | --- |
 | ToolUse/ToolResult block presence | VERIFIED | Official API returned both type labels; payload schema remains untrusted/unknown. |
 | Per-message timestamp key | VERIFIED | Key observed locally; optionality and semantics still require synthetic contract tests. |
-| `parent_agent_id` meaning/stability | PARTIAL | SDK 0.3.220 types document parent agent semantics; cross-version stability still needs a subagent Spike. |
+| `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
 | Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
-| Fork lineage in history reads | NEEDS_SPIKE | Do not infer from duplicate content. |
-| Compaction boundary in archival reads | NEEDS_SPIKE | Preserve unknown raw structures. |
+| Fork lineage in history reads | VERIFIED/NEGATIVE | No session view field references another session, and no session's message sequence is a prefix of another's. Duplicate openings exist without lineage, so inferring from content would have invented relations. |
+| Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
 | Custom config behavior in SDK reads | VERIFIED | Isolated empty root returned zero sessions and did not expose default-root history. |
 | SDK 0.3.220 with CLI 2.1.226 | VERIFIED | Local bounded read succeeded; no broader compatibility matrix is inferred. |
 
@@ -103,12 +135,12 @@ session becomes a fixture.
 | Message UUID/ID exclusion | VERIFIED_BY_TEST | Fake identifiers and sensitive values cannot enter the report. |
 | Message order | NEEDS_SPIKE | Controlled fixture must establish ordering and pagination overlap behavior. |
 | ToolUse/ToolResult presence | VERIFIED | Only allowlisted type labels are retained; payloads are excluded. |
-| Resume and fork lineage | NEEDS_SPIKE | Controlled sessions must distinguish lineage from content duplication. |
+| Resume and fork lineage | VERIFIED/NEGATIVE | The distinction this row asked for was made against real data: 25 opening prompts recur across sessions (largest group 9), yet 0 of 113 multi-message sessions is a message-prefix of another. Duplication is present, lineage is not. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
 | Git worktree | PARTIAL_CAPABILITY | Official option is forwarded with `includeWorktrees: true`; controlled session-bearing worktree remains pending. |
-| Subagent lineage | PARTIAL_CAPABILITY | SDK types document parent fields, but no sampled parent link exists; no Core relation is emitted. |
+| Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 | HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |
 | OTLP `http/json` metrics/logs | VERIFIED | The same session delivered real logs and metrics that normalized to token, model, estimated cost, and latency facts across both channels. gRPC/protobuf and traces remain unsupported. |

@@ -371,7 +371,8 @@ Contract Test로 검증한다.
 
 ### 미구현 또는 추가 Spike 필요
 
-- Claude resume, fork, compaction, worktree, subagent controlled contract
+- Claude worktree와 resume 성장 확인: 통제된 worktree 세션과, resume 이후 2회차 수집으로만
+  확인할 수 있는 `sessionId` 연장 여부
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
 - 통제된 실제 Codex active thread와 fork 사례, 추가 버전 호환성
@@ -381,3 +382,10 @@ Contract Test로 검증한다.
 
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
+
+Claude의 resume·fork·compaction·subagent 관계도 미구현이 아니라 Vendor 근거가 없는 경우다.
+전체 로컬 이력 265 Session·24917 Message를 구조만 읽어 확인했다. Session view의 아홉 키 중
+다른 Session을 가리키는 것이 없고, `parent_agent_id`·`parent_tool_use_id`는 모든 메시지에서
+null이며, 43회의 `Agent` 호출은 별도 Session을 만들지 않는다. 시작 프롬프트는 25개 그룹에서
+반복되지만 어떤 Session도 다른 Session의 메시지 접두사가 아니므로, 중복을 계보로 해석하면
+근거 없는 관계를 만들게 된다. 따라서 관계를 생성하지 않는 현재 동작이 규칙에 맞다.
