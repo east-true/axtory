@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
-import { stableId } from "../core/canonical-json.js";
+import { sha256, stableId } from "../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import type { Availability } from "../core/model.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
@@ -40,6 +40,7 @@ export interface UsageReportOutput {
     since: string | null;
     until: string | null;
     sourceTypes: readonly string[];
+    requestedWorkspaces: number;
     latestRevisionPerSourceObject: true;
     timeSemantics: "SOURCE_OCCURRED_AT";
   };
@@ -88,6 +89,13 @@ export interface UsageReportOutput {
     messages: number;
     toolInvocations: number;
   }[];
+  workspaces: {
+    availability: Availability;
+    reason: string | null;
+    distinctWorkspaces: number | null;
+    distinctBranches: number | null;
+    sessionsWithoutWorkspace: number;
+  };
   toolCategories: readonly { category: string; count: number; percentage: number }[];
   timelineByUtcDay: readonly {
     date: string;
@@ -306,12 +314,23 @@ function safeTelemetryLabel(value: unknown): string | null {
     : null;
 }
 
-function loadSessionInputs(database: AxtoryDatabase, sourceTypes: ReadonlySet<string>): SessionInput[] {
+function loadSessionInputs(
+  database: AxtoryDatabase,
+  sourceTypes: ReadonlySet<string>,
+  workspaceIdentities: ReadonlySet<string>,
+): SessionInput[] {
   return database.latestRevisions().flatMap((revision): SessionInput[] => {
     if (sourceTypes.size > 0 && !sourceTypes.has(revision.sourceType)) return [];
     const observations = database.observationsForRevision(revision.revisionId);
     const session = observations.find((item) => item.stableKey === "session" && item.kind === "SNAPSHOT");
     if (!session) return [];
+    // A revision collected before the workspace field existed carries no identity, so it cannot
+    // match a requested workspace and is excluded rather than silently counted as a match.
+    if (workspaceIdentities.size > 0 &&
+      !(typeof session.payload.workspaceIdentity === "string" &&
+        workspaceIdentities.has(session.payload.workspaceIdentity))) {
+      return [];
+    }
     const projection = projectSession(observations);
     return [{
       sourceType: safeSourceType(revision.sourceType), revisionId: revision.revisionId, observations, session,
@@ -436,6 +455,7 @@ export async function generateUsageReport(options: {
   since?: string;
   until?: string;
   sourceTypes?: readonly string[];
+  workspaceDirectories?: readonly string[];
   allowConversationContent?: boolean;
   now?: () => Date;
   randomId?: () => string;
@@ -445,6 +465,9 @@ export async function generateUsageReport(options: {
   if (since && until && since >= until) throw new Error("--since must be earlier than --until");
   const sourceTypes = [...new Set(options.sourceTypes ?? [])].sort();
   const sourceTypeSet = new Set(sourceTypes);
+  // The caller names a directory; only its digest is compared, so the path never enters the report.
+  const workspaceDirectories = [...new Set(options.workspaceDirectories ?? [])].sort();
+  const workspaceIdentities = new Set(workspaceDirectories.map((value) => sha256(resolve(value))));
   const now = options.now ?? (() => new Date());
   const randomId = options.randomId ?? randomUUID;
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
@@ -453,7 +476,8 @@ export async function generateUsageReport(options: {
   let database = new AxtoryDatabase(databasePath);
   try {
     return await buildUsageReport(database, (reopened) => { database = reopened; }, {
-      ...options, dataDirectory, databasePath, since, until, sourceTypes, sourceTypeSet, now, randomId,
+      ...options, dataDirectory, databasePath, since, until, sourceTypes, sourceTypeSet,
+      workspaceIdentities, now, randomId,
     });
   } finally {
     database.close();
@@ -471,14 +495,17 @@ async function buildUsageReport(
     until: string | null;
     sourceTypes: readonly string[];
     sourceTypeSet: ReadonlySet<string>;
+    workspaceIdentities: ReadonlySet<string>;
     allowConversationContent?: boolean;
     now: () => Date;
     randomId: () => string;
   },
 ): Promise<UsageReportOutput> {
-  const { since, until, sourceTypes, sourceTypeSet, dataDirectory, databasePath, now, randomId } = options;
+  const {
+    since, until, sourceTypes, sourceTypeSet, workspaceIdentities, dataDirectory, databasePath, now, randomId,
+  } = options;
   let database = initialDatabase;
-  let inputs = loadSessionInputs(database, sourceTypeSet);
+  let inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities);
   let selected = selectedSessions(inputs, since, until);
   const semanticInputs = selected.sessions.filter(supportsRuleSemantics);
   const eligibleSemanticInputs = semanticInputs.filter((input) => {
@@ -519,7 +546,7 @@ async function buildUsageReport(
       database = new AxtoryDatabase(databasePath);
       onReopen(database);
     }
-    inputs = loadSessionInputs(database, sourceTypeSet);
+    inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities);
     selected = selectedSessions(inputs, since, until);
   }
 
@@ -796,11 +823,24 @@ async function buildUsageReport(
       ? "Declared baselines exist but their DataClassification does not allow export."
       : "No annotation in the selected report scope declares a baseline.";
 
+  // Digests only: the report counts how many distinct workspaces and branches the selected sessions
+  // ran in without ever holding a path or a branch name.
+  const workspaceDigests = new Set(sessions
+    .map((item) => item.session.payload.workspaceIdentity)
+    .filter((value): value is string => typeof value === "string"));
+  const branchDigests = new Set(sessions
+    .map((item) => item.session.payload.branchIdentity)
+    .filter((value): value is string => typeof value === "string"));
+  const sessionsWithWorkspace = sessions
+    .filter((item) => typeof item.session.payload.workspaceIdentity === "string").length;
+  const sessionsWithoutWorkspace = sessions.length - sessionsWithWorkspace;
+
   const report: UsageReportOutput = {
     schemaVersion: "axtory.usage-report.v2", generatedAt, analysisRunId,
     analyzerVersion: USAGE_REPORT_ANALYZER_VERSION, derivation: "CALCULATED",
     scope: {
-      since, until, sourceTypes, latestRevisionPerSourceObject: true,
+      since, until, sourceTypes, requestedWorkspaces: workspaceIdentities.size,
+      latestRevisionPerSourceObject: true,
       timeSemantics: "SOURCE_OCCURRED_AT",
     },
     totals: {
@@ -835,7 +875,21 @@ async function buildUsageReport(
         ? "Normalized observations remain, but Raw evidence was removed for one or more report inputs."
         : null,
     },
-    bySource, toolCategories, timelineByUtcDay,
+    bySource,
+    workspaces: {
+      availability: sessionsWithWorkspace > 0
+        ? (sessionsWithoutWorkspace > 0 ? "PARTIAL" : "AVAILABLE")
+        : (hasSource ? "NOT_COLLECTED" : "SOURCE_UNAVAILABLE"),
+      reason: sessionsWithWorkspace === 0
+        ? "No selected session records a workspace; revisions collected before the field existed carry none."
+        : sessionsWithoutWorkspace > 0
+          ? "Some selected revisions predate the workspace field and are excluded from these counts."
+          : null,
+      distinctWorkspaces: sessionsWithWorkspace > 0 ? workspaceDigests.size : null,
+      distinctBranches: sessionsWithWorkspace > 0 ? branchDigests.size : null,
+      sessionsWithoutWorkspace,
+    },
+    toolCategories, timelineByUtcDay,
     semantics: {
       derivation: "INFERRED", availability: semanticsAvailability, reason: semanticsReason,
       candidateRevisions: semanticInputs.length, eligibleRevisions: currentEligible.length,
@@ -973,6 +1027,14 @@ export function renderUsageReport(report: UsageReportOutput): string {
       `(${report.patterns.sessionsWithToolsPercentage?.toFixed(2) ?? "unavailable"}%)`,
     `Assistant/user message ratio: ${report.patterns.assistantMessagesPerUserMessage ?? "unavailable"}`,
     `Tool/assistant message ratio: ${report.patterns.toolInvocationsPerAssistantMessage ?? "unavailable"}`,
+    `Workspaces: ${report.workspaces.availability}` +
+      (report.workspaces.distinctWorkspaces === null
+        ? ""
+        : `, ${report.workspaces.distinctWorkspaces} distinct across ` +
+          `${report.workspaces.distinctBranches} branches`) +
+      (report.workspaces.sessionsWithoutWorkspace === 0
+        ? ""
+        : `, ${report.workspaces.sessionsWithoutWorkspace} sessions without one`),
     `Session views: ${report.coverage.completeSessions} complete, ${report.coverage.partialSessions} partial, ` +
       `${report.coverage.unknownSessions} unknown`,
     `Revision heads: ${report.coverage.completedCollectionHeads} completed-collection, ` +

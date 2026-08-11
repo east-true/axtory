@@ -335,11 +335,13 @@ async function main(args: readonly string[]): Promise<void> {
       throw new Error("report-usage requires --data-dir and --json-out");
     }
     const requestedSources = requestedSourceTypes(args);
+    const workspaceDirectories = options(args, "--workspace-dir");
     const output = await generateUsageReport({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
       ...(option(args, "--until") ? { until: option(args, "--until")! } : {}),
       ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
+      ...(workspaceDirectories.length > 0 ? { workspaceDirectories } : {}),
       allowConversationContent: args.includes("--allow-conversation-content"),
     });
     process.stdout.write(renderUsageReport(output));
