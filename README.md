@@ -219,9 +219,24 @@ report and counted as `sessionsWithoutWorkspace` in an unscoped one, which marks
 
 Recollecting does **not** backfill them. A collector reuses a revision whenever the source's
 modification time is unchanged, and a revision's normalized observations are written once, so a
-session that never changes again keeps the normalization it was first collected with. Only sessions
-that are new or modified after the normalizer changed carry the workspace. Collecting into a fresh
-`--data-dir` gives a fully populated report; re-normalizing an existing one is not yet supported.
+session that never changes again keeps the normalization it was first collected with.
+
+`renormalize` is what backfills them. It re-reads retained raw evidence, recomputes the derived
+observations in place, and records which normalizer produced them:
+
+```sh
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude --dry-run
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude
+```
+
+It does not create a revision. A revision is identified by the hash of the raw view, so it stands
+for a state of the source, and the source did not change when the normalizer did. Raw evidence is
+never rewritten — only the derived layer is recomputed. Coverage is carried forward rather than
+recomputed, because it describes the read that happened rather than the content. Analysis records
+built on a re-normalized revision become `INVALIDATED`, which is distinct from `EVIDENCE_REMOVED`:
+the evidence is present, it was recomputed. Revisions whose raw evidence was already deleted keep
+the normalization they have. Claude and Codex can be re-normalized; the additional AI sources store
+only the Vendor payload, so they are reported as unsupported rather than silently skipped.
 
 A branch is counted on its own denominator because a session can record a workspace without one. A
 Codex thread that did not run in a Git working tree reports no branch, which is a normal thread

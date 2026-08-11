@@ -370,10 +370,10 @@ Contract Test로 검증한다.
   Analytics Console/JSON 리포트
 - Claude Session과 Codex thread의 작업공간 맥락을 digest로 수집하는 `--workspace-dir` 범위 지정
 - Vendor 메시지 정체성으로 Claude fork를 찾아 `FORKED_FROM`을 `INFERRED`로 내는 분석 pass
+- Raw를 다시 읽어 파생 관측치만 제자리 재계산하는 `renormalize`
 
 ### 미구현 또는 추가 Spike 필요
 
-- Normalizer 버전이 오른 뒤 기존 Revision의 재정규화 (아래 참조)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
 - App Server daemon이 live state를 읽을 때 `active`를 보고하는지 (수집기는 의도적으로 snapshot을
@@ -386,15 +386,30 @@ Contract Test로 검증한다.
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
 
-Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않는다. 재사용 판단은
-`(source_object_id, source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을
-막아도 Revision id가 content hash에서 결정되고 관측치 삽입이
-`ON CONFLICT(source_revision_id, stable_key) DO NOTHING`이라 새 정규화 결과가 조용히 버려진다.
-실제 데이터로 확인했다. `codex-app-server/1`로 수집한 75 Revision이 있는 디렉터리에 재수집하면
-새로 생긴 24건만 `workspaceIdentity`를 갖고 재사용된 26건은 그대로였다. 따라서 Normalizer에
-필드를 추가하면 이후 변경되는 Session만 그 필드를 갖는다. 재정규화를 지원하려면 Revision을
-새로 만들 것인지 파생 관측치만 다시 계산할 것인지를 먼저 정해야 하므로 열린 설계 결정이다.
-Raw 불변성은 원본을 수정하지 않는다는 뜻이고 파생 관측치 재계산을 금지하지는 않는다.
+재수집은 Normalizer 변경을 반영하지 못한다. 재사용 판단이 `(source_object_id,
+source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을 막아도 Revision id가
+content hash에서 결정되고 관측치 삽입이 `ON CONFLICT(source_revision_id, stable_key) DO NOTHING`
+이라 새 정규화 결과가 조용히 버려진다. 실제로 `codex-app-server/1`로 수집한 75 Revision
+디렉터리에 재수집하면 새로 생긴 24건만 `workspaceIdentity`를 갖고 재사용된 26건은 그대로였다.
+
+**결정:** 재정규화는 파생 관측치를 제자리에서 다시 계산하며 Revision을 새로 만들지 않는다.
+SourceRevision은 raw view의 content hash로 식별되므로 원천의 한 상태를 뜻한다. Normalizer가
+바뀌었다고 원천이 바뀐 것은 아니고, Revision을 새로 만들면 바뀌었다고 주장하는 셈이며 모델이
+기대는 유일성과도 충돌한다. Raw 불변성은 원본을 수정하지 않는다는 뜻이고 파생 계층 재계산을
+금지하지 않는다.
+
+`renormalize`가 이를 수행한다. Revision의 저장된 normalizer 버전이 현재와 다르면 raw를 다시 읽어
+정규화하고 관측치를 교체한 뒤 버전을 기록한다. Head Revision뿐 아니라 저장된 모든 Revision을
+대상으로 하는데, 밀려난 Revision도 보존된 증거이고 그것만 옛 Normalizer로 남기면 같은 DB가 어느
+Revision을 읽느냐에 따라 같은 질문에 다르게 답하기 때문이다. Coverage는 다시 계산하지 않고
+저장된 값을 이어받는다. Coverage는 내용이 아니라 그때의 읽기를 서술하므로, 지금 다시 만들면
+이미 끝난 읽기에 대한 판단을 지어내는 것이 된다. 그 Revision을 입력으로 삼은 AnalysisRecord는
+`INVALIDATED`가 된다. 증거가 사라진 것이 아니라 다시 계산되었으므로 `EVIDENCE_REMOVED`가
+아니다. Raw가 이미 삭제된 Revision은 옛 정규화가 그 Revision에 남은 전부이므로 그대로 둔다.
+
+Claude와 Codex는 raw view가 Normalizer 입력을 온전히 담아 재정규화할 수 있다. 추가 AI Source는
+raw에 Vendor payload만 있고 Normalizer가 읽는 파싱된 view가 없어 live adapter 없이는 입력을
+복원할 수 없으므로, 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고한다.
 
 Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거가 없는 경우다. 전체 로컬
 이력 265 Session·24917 Message를 구조만 읽고, 별도로 통제된 resume·fork Session을 만들어

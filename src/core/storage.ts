@@ -844,6 +844,74 @@ export class AxtoryDatabase {
     } : null;
   }
 
+  /**
+   * Every stored revision with the normalizer version that produced its observations.
+   *
+   * Re-normalization needs all of them, not just the current head per source object: a superseded
+   * revision is still retained evidence, and leaving it on an older normalizer would mean the same
+   * database answers the same structural question two different ways depending on which revision a
+   * caller reads.
+   */
+  revisionsWithNormalizerVersion(): Array<{
+    revisionId: string;
+    sourceObjectId: string;
+    sourceType: string;
+    normalizerVersion: string;
+  }> {
+    const rows = this.db.prepare(`SELECT sr.id, sr.source_object_id, so.source_type, sr.normalizer_version
+      FROM source_revisions sr JOIN source_objects so ON so.id = sr.source_object_id
+      ORDER BY so.source_type, sr.id`).all() as Array<Record<string, string>>;
+    return rows.map((row) => ({
+      revisionId: row.id!,
+      sourceObjectId: row.source_object_id!,
+      sourceType: row.source_type!,
+      normalizerVersion: row.normalizer_version!,
+    }));
+  }
+
+  /**
+   * Replace a revision's derived observations and record which normalizer produced them.
+   *
+   * Raw evidence is untouched: only the normalized layer is recomputed. The delete is what makes
+   * this different from `insertObservations`, whose conflict clause would silently keep the older
+   * normalization when a stable key already exists.
+   */
+  replaceObservations(
+    revisionId: string,
+    observations: readonly NormalizedObservation[],
+    normalizerVersion: string,
+  ): { removed: number; inserted: number } {
+    return this.transaction(() => {
+      const removed = Number(this.db.prepare(
+        `DELETE FROM normalized_observations WHERE source_revision_id = ?`,
+      ).run(revisionId).changes);
+      this.insertObservations(observations);
+      this.db.prepare(`UPDATE source_revisions SET normalizer_version = ? WHERE id = ?`)
+        .run(normalizerVersion, revisionId);
+      return { removed, inserted: observations.length };
+    });
+  }
+
+  /**
+   * Mark analysis records whose inputs were recomputed.
+   *
+   * The records were derived from observations that no longer exist in the form they were read in.
+   * They are not deleted, because the run itself remains a true record of what was analyzed, and
+   * they are not `EVIDENCE_REMOVED`, because the evidence is present rather than gone.
+   */
+  markEvidenceInvalidatedForRevisionIds(revisionIds: readonly string[]): number {
+    if (revisionIds.length === 0) return 0;
+    const runIds = this.analysisRunIdsForInputRevisions(revisionIds);
+    if (runIds.length === 0) return 0;
+    let changed = 0;
+    for (const batch of this.batches(runIds)) {
+      const placeholders = batch.map(() => "?").join(",");
+      changed += Number(this.db.prepare(`UPDATE analysis_records SET evidence_status = 'INVALIDATED'
+        WHERE evidence_status = 'PRESENT' AND analysis_run_id IN (${placeholders})`).run(...batch).changes);
+    }
+    return changed;
+  }
+
   revisionIdsForSourceObject(sourceObjectId: string): string[] {
     return this.db.prepare(`SELECT id FROM source_revisions WHERE source_object_id = ? ORDER BY id`)
       .all(sourceObjectId).map((row) => (row as { id: string }).id);

@@ -262,8 +262,7 @@ Codex 모두 절대 경로와 branch 이름의 digest만 기록하고 리포트�
 방식으로 해싱해 digest끼리만 비교하므로, 경로와 branch 이름은 리포트에 들어가지 않는다. 아무도
 작업하지 않은 디렉터리는 0이 아니라 `SOURCE_UNAVAILABLE`이다. branch는 작업공간과 별도 분모로
 센다. Git 작업 트리 밖에서 실행된 Codex thread는 branch가 없는데 이는 수집 누락이 아니기
-때문이다. 다만 Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않으므로 이 필드는 이후
-새로 생기거나 변경되는 Session에만 채워진다. 한계와 배경은
+때문이다. 재수집은 이 필드를 채우지 못하므로 기존 디렉터리는 `renormalize`로 채운다. 배경은
 `architecture/system-design.md`에 기록했다.
 
 **정합성 보강:** Connector·Live·Report 경로 감사로 확인한 결함을 함께 수정했다. 원천 시각은
@@ -296,9 +295,12 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
   공통 시작부 밖에서 identity를 공유하면 추측 대신 관계를 만들지 않는다. 내용에서 파생된
   identity를 가진 Session은 제외해 같은 첫 프롬프트가 fork로 둔갑하지 않게 했다. 실제 86 Session
   수집에서 후보 1쌍·관계 1건·애매 0건으로 프로브 결과를 재현했다.
-- **재정규화:** Normalizer 버전이 올라도 기존 Revision은 다시 정규화되지 않는다. Revision을 새로
-  만들 것인지 파생 관측치만 재계산할 것인지 정해야 하는 열린 설계 결정이다. 현재는 새
-  `--data-dir` 수집이 유일한 우회다.
+- **완료 — 재정규화:** `renormalize`가 파생 관측치를 제자리에서 재계산하며 Revision을 새로 만들지
+  않는다. Revision은 raw content hash로 원천의 한 상태를 뜻하고 Normalizer 변경은 원천 변경이
+  아니기 때문이다. Raw는 다시 쓰지 않고, Coverage는 그때의 읽기를 서술하므로 이어받으며, 해당
+  Revision을 쓴 AnalysisRecord는 `INVALIDATED`가 된다. 실제 75 Revision Codex 디렉터리에서
+  `codex-app-server/1` 전량을 `/2`로 올려 리포트가 `PARTIAL, 3 distinct, 58 sessions without one`
+  에서 `AVAILABLE, 6 distinct`로 바뀌는 것을 확인했다.
 - **Claude 실제 active Session:** 목록 읽기와 재읽기 사이에 변경되는 통제된 Session이 없다.
   구현과 합성 테스트는 있으나 실제 사례가 없다. Codex는 격리 snapshot을 읽으므로 해당하지 않는다.
 - **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**

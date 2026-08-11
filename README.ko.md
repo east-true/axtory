@@ -217,9 +217,23 @@ Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같�
 
 다시 수집해도 채워지지 않습니다. Collector는 원천 수정 시각이 그대로면 기존 Revision을
 재사용하고 Revision의 정규화 관측치는 한 번만 기록되므로, 이후 변경되지 않는 Session은 처음
-수집될 때의 정규화를 유지합니다. Normalizer가 바뀐 뒤 새로 생기거나 수정된 Session만 작업공간을
-갖습니다. 새 `--data-dir`로 수집하면 완전히 채워진 리포트를 얻을 수 있으며, 기존 디렉터리의
-재정규화는 아직 지원하지 않습니다.
+수집될 때의 정규화를 유지합니다.
+
+채우는 것은 `renormalize`입니다. 보존된 raw 증거를 다시 읽어 파생 관측치를 제자리에서 재계산하고
+어떤 Normalizer가 만들었는지 기록합니다.
+
+```sh
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude --dry-run
+node dist/src/cli.js renormalize --data-dir .local/axtory-claude
+```
+
+Revision을 새로 만들지 않습니다. Revision은 raw view의 hash로 식별되어 원천의 한 상태를 뜻하는데,
+Normalizer가 바뀌었다고 원천이 바뀐 것은 아니기 때문입니다. Raw 증거는 절대 다시 쓰지 않고 파생
+계층만 재계산합니다. Coverage는 내용이 아니라 그때의 읽기를 서술하므로 재계산하지 않고 그대로
+이어받습니다. 재정규화된 Revision을 입력으로 삼은 AnalysisRecord는 `INVALIDATED`가 됩니다.
+증거가 사라진 것이 아니라 다시 계산된 것이므로 `EVIDENCE_REMOVED`와 구분합니다. Raw 증거가 이미
+삭제된 Revision은 가진 정규화를 그대로 유지합니다. Claude와 Codex는 재정규화할 수 있으며, 추가 AI
+Source는 Vendor payload만 저장하므로 조용히 건너뛰지 않고 미지원으로 보고합니다.
 
 branch는 별도의 분모로 셉니다. 작업공간은 있으나 branch가 없는 Session이 있기 때문입니다.
 Git 작업 트리 밖에서 실행된 Codex thread는 branch를 보고하지 않는데, 이는 수집 누락이 아니라

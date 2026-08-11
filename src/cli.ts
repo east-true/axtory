@@ -27,6 +27,7 @@ import { ingestLiveSpool } from "./live/ingestion.js";
 import { CodexAppServerClient } from "./connectors/codex/app-server.js";
 import { collectCodexHistory, renderCodexCollection } from "./connectors/codex/collector.js";
 import { renderForkLineage, runForkLineageAnalysis } from "./analysis/fork-lineage.js";
+import { renderRenormalize, renormalizeStoredRevisions } from "./core/renormalize.js";
 import { assertSanitizedCodexReport, runCodexContractSpike } from "./connectors/codex/contract-spike.js";
 import { discoverCodex } from "./connectors/codex/discovery.js";
 import { createCodexHomeSnapshot } from "./connectors/codex/snapshot.js";
@@ -336,6 +337,14 @@ async function main(args: readonly string[]): Promise<void> {
     process.stdout.write(renderForkLineage(summary));
     return;
   }
+  if (command === "renormalize") {
+    const dataDirectory = option(args, "--data-dir");
+    if (!dataDirectory) throw new Error("renormalize requires --data-dir");
+    const dryRun = args.includes("--dry-run");
+    const summary = await renormalizeStoredRevisions({ dataDirectory: resolve(dataDirectory), dryRun });
+    process.stdout.write(renderRenormalize(summary, dryRun));
+    return;
+  }
   if (command === "report-usage") {
     const dataDirectory = option(args, "--data-dir");
     const jsonOutputPath = option(args, "--json-out");
@@ -619,7 +628,7 @@ async function main(args: readonly string[]): Promise<void> {
     return;
   }
   if (command !== "collect-fixture") {
-    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|collect-additional-ai|report-usage|analyze-rule|analyze-fork-lineage|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
+    throw new Error("usage: axtory <collect-fixture|collect-claude|collect-codex|spike-codex|collect-git|collect-work-system|collect-additional-ai|report-usage|analyze-rule|analyze-fork-lineage|renormalize|plan-live|serve-live|ingest-live|rollback-live|list|delete|retain|annotate|verify|purge> [options]");
   }
   const fixture = option(args, "--fixture");
   const dataDirectory = option(args, "--data-dir");
