@@ -123,9 +123,14 @@ Capability 검사
 - 최신 Revision 기반 기간·Source·Session·Tool·Evidence·Telemetry·Verification Usage
   Analytics Console/JSON 리포트
 - 명시적 content 동의가 있을 때만 Usage Report에 통합되는 Rule Semantic 범주
+- Claude Session과 Codex thread의 작업공간 맥락을 digest로만 수집하는 `--workspace-dir` 범위 지정
 
-현재 완료 상태는 Claude resume·compaction·worktree·subagent 의미 관계나 Codex의 통제된
-active/fork/subagent 실제 사례까지 모두 검증했다는 뜻이 아니다.
+Claude의 resume·compaction·worktree·subagent와 Codex의 resume·fork·subagent·미완료 turn은
+통제된 실제 사례로 확인했고, 대부분 관계가 없다는 negative 결론이었다. 다만 다음은 아직 열려
+있다. Claude의 실제 active Session 중 수집(목록 읽기와 재읽기 사이의 변경 감지)은 통제된
+사례가 없다. Codex는 격리 snapshot을 읽으므로 같은 질문이 구조적으로 성립하지 않지만 Claude는
+live 상태를 다시 읽으므로 성립한다. Claude fork를 `FORKED_FROM`으로 발행할지, Codex
+`gitInfo.originUrl`을 저장소 정체성으로 수집할지도 결정하지 않았다.
 
 ## 7. 초기 MVP 이후에도 제외하는 것
 

@@ -289,6 +289,17 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
 10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
+11. **열림:** 아래 네 가지. 앞의 둘은 구현 전에 설계 결정이 필요하고, 뒤의 둘은 통제된 사례가 필요하다
+
+- **재정규화:** Normalizer 버전이 올라도 기존 Revision은 다시 정규화되지 않는다. Revision을 새로
+  만들 것인지 파생 관측치만 재계산할 것인지 정해야 한다. 현재는 새 `--data-dir` 수집이 유일한
+  우회다. 근거는 `architecture/system-design.md`에 있다.
+- **`FORKED_FROM` 발행:** Claude fork는 Vendor 메시지 `uuid` 공유로 관측되지만 선언된 필드가
+  아니고 Session 간 비교가 필요하다. Codex `gitInfo.originUrl`을 저장소 정체성으로 수집할지도
+  같은 성격의 결정이다.
+- **Claude 실제 active Session:** 목록 읽기와 재읽기 사이에 변경되는 통제된 Session이 없다.
+  구현과 합성 테스트는 있으나 실제 사례가 없다. Codex는 격리 snapshot을 읽으므로 해당하지 않는다.
+- **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**
 
 자동 AnalysisUnit, ROI/Impact Analysis, Dashboard는 다음 범위다. Usage Report는 Dashboard
 없이도 현재 로컬 데이터를 직접 읽을 수 있는 CLI 계층으로 완료했다.

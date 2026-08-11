@@ -82,8 +82,8 @@ and hashes only, no content — settled the lineage rows the earlier bounded sam
   existing `sessionId` rather than creating a new one needs a second collection taken after a
   controlled resume; a single snapshot cannot show growth.
 - `cwd` (12 distinct) and `gitBranch` (22 distinct) are the only workspace signals the session view
-  carries. AXtory does not currently read either, and both are path- and name-bearing, so capturing
-  them would require hashing under the same rule the Local Git collector already follows.
+  carries. Both are path- and name-bearing, so AXtory reads them only as digests, under the same rule
+  the Local Git collector already follows. This is what `--workspace-dir` compares against.
 
 ### Controlled resume and fork session
 
@@ -149,7 +149,7 @@ byte-for-byte with `rollback-live`.
 | ToolUse/ToolResult block presence | VERIFIED | Official API returned both type labels; payload schema remains untrusted/unknown. |
 | Per-message timestamp key | VERIFIED | Key observed locally; optionality and semantics still require synthetic contract tests. |
 | `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
-| Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. |
+| Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. Still open, and the Codex resolution does not transfer: Codex reads a frozen snapshot, so liveness is hidden by construction and coverage is decided on turn completion instead, whereas the Claude collector re-reads live state with `getSessionInfo` after the message read and compares `lastModified`. That comparison can fire, but no controlled session has been observed changing during a read. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
 | Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. |
 | Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
@@ -170,13 +170,13 @@ session becomes a fixture.
 | Session enumeration and bounded coverage | VERIFIED | Limit hits are `PARTIAL_LIMIT`, never complete or zero-filled. |
 | Session metadata optionality | VERIFIED_BY_TEST | Missing timestamp/source-modified fields remain unavailable and are not replaced with collection time. |
 | Message UUID/ID exclusion | VERIFIED_BY_TEST | Fake identifiers and sensitive values cannot enter the report. |
-| Message order | NEEDS_SPIKE | Controlled fixture must establish ordering and pagination overlap behavior. |
+| Message order | VERIFIED_BY_TEST | Synthetic contract tests establish that pagination preserves the source order, that an overlapping page is deduplicated while coverage drops to `PARTIAL_PAGINATION`, and that a max-page guard never claims completeness. Whether the Vendor guarantees a stable order is not inferred from this. |
 | ToolUse/ToolResult presence | VERIFIED | Only allowlisted type labels are retained; payloads are excluded. |
 | Resume and fork lineage | VERIFIED | Controlled sessions separated the two. Resume keeps the same `sessionId` and grows it, so there is nothing to relate. Fork mints a new `sessionId` whose messages repeat the parent's `uuid` values, which is Vendor-assigned identity rather than duplicate content. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
-| Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree, and AXtory reads neither field. |
+| Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree. AXtory now reads both fields, but only as digests and only as workspace context, so a worktree still yields no relation. |
 | Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 | HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |
