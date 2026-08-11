@@ -157,6 +157,11 @@ SPI 후보 문서로 제안한다. 공통되지 않은 항목은 Connector 내�
 list/detail 수정시각 불일치, compaction, non-full turn, pagination bound를 완전한 이력으로
 표시하지 않는다. fork/parent는 공식 응답의 명시 필드가 있을 때만 관계를 만든다.
 
+**후속:** 격리 읽기에서는 `status`와 `updatedAt`이 liveness를 알릴 수 없음을 실제 사례로
+확인하고, 끝나지 않은 turn을 `completedAt === null`로 판정하는 `PARTIAL_UNSETTLED_TURN`을
+추가했다. thread의 `cwd`와 `gitInfo.branch`도 Claude와 같은 해싱 규칙으로 digest만 수집해
+`--workspace-dir`가 두 Source를 함께 선택하도록 했다. Normalizer는 `codex-app-server/2`다.
+
 Claude/Codex 공통 최소 계약은 `architecture/connector-spi-candidate.md`에 후보로 기록했지만,
 공개 SPI는 아직 만들지 않았다. offset/cursor, SDK/stdio lifecycle, active consistency,
 sourceKind와 lineage는 Connector 내부에 남겼다.
@@ -251,6 +256,15 @@ Codex data directory에서도 리포트를 생성하고 Raw content/path가 JSON
 AXtory는 뺄셈할 실제 소요 시간을 기록하지 않으므로 이 합계를 절약된 시간으로 제시하지 않는다.
 schema v9는 Retention이 지운 Verification Note 수를 `deletion_runs`에 남겨 삭제 감사가 실제
 수행분과 일치하게 했다.
+
+여섯 번째로 `--workspace-dir`가 Session이 실행된 디렉터리로 리포트 범위를 좁힌다. Claude와
+Codex 모두 절대 경로와 branch 이름의 digest만 기록하고 리포트도 호출자가 지정한 경로를 같은
+방식으로 해싱해 digest끼리만 비교하므로, 경로와 branch 이름은 리포트에 들어가지 않는다. 아무도
+작업하지 않은 디렉터리는 0이 아니라 `SOURCE_UNAVAILABLE`이다. branch는 작업공간과 별도 분모로
+센다. Git 작업 트리 밖에서 실행된 Codex thread는 branch가 없는데 이는 수집 누락이 아니기
+때문이다. 다만 Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않으므로 이 필드는 이후
+새로 생기거나 변경되는 Session에만 채워진다. 한계와 배경은
+`architecture/system-design.md`에 기록했다.
 
 **정합성 보강:** Connector·Live·Report 경로 감사로 확인한 결함을 함께 수정했다. 원천 시각은
 UTC로 정규화한 뒤에만 저장하고, live envelope 하나의 실패가 같은 실행에서 적재된 Revision을

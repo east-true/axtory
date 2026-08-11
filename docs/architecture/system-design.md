@@ -368,10 +368,11 @@ Contract Test로 검증한다.
 - 문서화된 저장소를 직접 읽는 Kimi Code Connector와 Rule Semantic 경로
 - 최신 Revision·기간·Source·Session·Tool·Evidence·Telemetry·Verification 범주의 Usage
   Analytics Console/JSON 리포트
+- Claude Session과 Codex thread의 작업공간 맥락을 digest로 수집하는 `--workspace-dir` 범위 지정
 
 ### 미구현 또는 추가 Spike 필요
 
-- Claude Session의 `cwd`·`gitBranch` 작업공간 맥락 수집 여부 결정 (해싱 필요)
+- Normalizer 버전이 오른 뒤 기존 Revision의 재정규화 (아래 참조)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
 - App Server daemon이 live state를 읽을 때 `active`를 보고하는지 (수집기는 의도적으로 snapshot을
@@ -383,6 +384,16 @@ Contract Test로 검증한다.
 
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
+
+Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않는다. 재사용 판단은
+`(source_object_id, source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을
+막아도 Revision id가 content hash에서 결정되고 관측치 삽입이
+`ON CONFLICT(source_revision_id, stable_key) DO NOTHING`이라 새 정규화 결과가 조용히 버려진다.
+실제 데이터로 확인했다. `codex-app-server/1`로 수집한 75 Revision이 있는 디렉터리에 재수집하면
+새로 생긴 24건만 `workspaceIdentity`를 갖고 재사용된 26건은 그대로였다. 따라서 Normalizer에
+필드를 추가하면 이후 변경되는 Session만 그 필드를 갖는다. 재정규화를 지원하려면 Revision을
+새로 만들 것인지 파생 관측치만 다시 계산할 것인지를 먼저 정해야 하므로 열린 설계 결정이다.
+Raw 불변성은 원본을 수정하지 않는다는 뜻이고 파생 관측치 재계산을 금지하지는 않는다.
 
 Claude의 resume·compaction·subagent는 미구현이 아니라 Vendor 근거가 없는 경우다. 전체 로컬
 이력 265 Session·24917 Message를 구조만 읽고, 별도로 통제된 resume·fork Session을 만들어
@@ -396,6 +407,11 @@ Worktree는 계보가 아니라 작업공간 맥락이다. 통제된 worktree Se
 `includeWorktrees`는 true·false·미지정에서 모두 같은 결과였다. 게다가 265 Session 이력에서
 같은 `cwd`가 여러 branch를 갖는다(12개 디렉터리에 31개 `(cwd, gitBranch)` 조합). 즉 branch
 전환과 worktree가 같은 모양으로 나타나므로 저장소 정체성 없이는 구분할 수 없다.
+
+Codex는 이 점에서 다르다. Thread view의 `gitInfo`가 `originUrl`을 노출하므로 저장소 정체성을
+읽을 수 있다. 다만 원격 URL이라 해싱해도 수집 여부는 별도 판단이 필요하고, Claude 쪽에 대응
+필드가 없어 Source 간 비대칭이 생긴다. 현재 두 Connector는 `cwd`와 branch의 digest만 읽으며
+`originUrl` 수집은 열린 결정이다.
 
 Fork는 다르다. `--fork-session`은 새 `sessionId`를 만들고 어떤 필드로도 부모를 선언하지 않지만,
 부모의 메시지를 Vendor가 부여한 `uuid`째로 복제하며 `session_id`만 자식으로 고쳐 쓴다. 따라서

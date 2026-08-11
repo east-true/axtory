@@ -262,6 +262,31 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
 - Whether an App Server daemon reading live state reports `active` remains untested. It would not
   change the collector, which reads a snapshot on purpose.
 
+### Workspace context in the thread view
+
+A structural read of 40 real threads out of 193 listed, on CLI 0.147.0, settled how App Server
+reports the directory a thread ran in. This is the Codex counterpart of the Claude session's `cwd`
+and `gitBranch`.
+
+- `cwd` was present and non-empty on all 40, absolute on all 40, and already equal to its own
+  `resolve()` on all 40, with no trailing slash. The list summary and the detail view agreed on it
+  for every thread. Hashing it therefore produces the same digest a report computes from a directory
+  the caller names, which is what lets one `--workspace-dir` select Claude and Codex sessions
+  together. 7 distinct directories appeared.
+- `gitInfo` is null on 24 of the 40. When present it exposes `sha`, `branch`, and `originUrl`, and
+  `branch` was itself null on 8 of those 16. A branch is therefore recorded by only 8 of 40 threads,
+  and its absence is a thread that did not run in a Git working tree rather than a collection gap.
+  Distinct-branch counts consequently need their own denominator instead of the workspace one.
+- `originUrl` is repository identity, which the Claude session view does not expose. It would
+  separate a worktree from a branch switch — the distinction the Claude read could not make — but it
+  is a remote URL and would only ever be stored hashed. Whether to collect it is an open decision,
+  not part of the workspace context AXtory reads today.
+- Only the digests of `cwd` and `gitInfo.branch` are kept, under the rule the Claude connector and
+  the Local Git collector already follow. `sha` and `originUrl` are not read. Confirmed on a real
+  50-thread collection: 7 distinct workspaces, 3 distinct branches, 42 threads without one, and no
+  path in the exported report.
+- Normalizer version moves to `codex-app-server/2`.
+
 ### Contract status
 
 | Contract | Current status | Handling |
@@ -275,6 +300,8 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
 | subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
 | fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. A controlled `exec resume` is not a fork: it keeps the same thread id and emits no relation. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
+| workspace context | VERIFIED | `cwd` is present, absolute, and already normalized on all 40 inspected threads, and matches between list and detail, so its digest is comparable with the Claude connector's. `gitInfo.branch` is recorded by 8 of 40; an absent branch is a thread outside a Git working tree. |
+| repository identity | NOT_COLLECTED | `gitInfo.originUrl` would separate a worktree from a branch switch, but collecting a remote URL even hashed is an open decision rather than a read AXtory performs. |
 | internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
 | experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
 
