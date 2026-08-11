@@ -88,7 +88,9 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
 ### 자격증명 기반 content 검증 재시도 (2026-08-11)
 
 **OpenCode는 실제 대화로 검증했고, Gemini와 Kimi는 자격증명이 없어 여전히 미검증이다.**
-막힌 이유는 각각 확정했다.
+막힌 이유는 각각 확정했다. OpenCode는 `auth.json`의 credential이 0건이어서 처음에 자격증명
+부재로 판단했으나 이는 틀렸다. `opencode run`이 인증 없이 동작해 직접 Session을 만들고 변경할
+수 있었고, 아래 검증은 그렇게 수행했다.
 
 - **Gemini CLI 0.54.4:** 설치돼 있으나 auth 미설정이다. `--list-sessions`가 `GEMINI_API_KEY`
   등을 요구하며 실패한다. AXtory는 이때 exit 1로 명시 종료하고 출력 파일을 쓰지 않는다. 0건으로
@@ -116,6 +118,19 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
   - `DELETE_RAW_ONLY` 후에도 count는 유지하되 `EVIDENCE_REMOVED`와 보존/삭제 개수를 표시한다.
   - `renormalize`는 OpenCode를 조용히 건너뛰지 않고 이유와 함께 미지원으로 보고하며, Raw가
     삭제된 Revision은 별도로 집계하고 기존 정규화를 유지한다.
+  - **변경된 Session만 새 Revision을 만든다.** `opencode run --continue`로 기존 Session 하나에
+    turn을 덧붙인 뒤 재수집하니 신규 1건·불변 2건이었고, 해당 SourceObject만 Revision 2개를
+    갖는다. Revision은 4개지만 리포트는 SourceObject별 최신 하나만 써서 Message를 12로 센다.
+    10+12=22이 아니다. 재수집을 사용량으로 오인하지 않는다는 계약을 실제 변경 데이터로 확인했다.
+  - **Fork 계보는 관측 불가능하다.** `opencode run --fork`로 만든 Session도 export의 session
+    정보에 parent·fork 계열 key가 전혀 없고(`id, slug, projectID, directory, path, title, agent,
+    model, version, summary, cost, tokens, time`), 4개 Session 사이에 공유되는 message id가 0건이다.
+    Claude fork를 잡아낸 Vendor 메시지 정체성 기법이 여기서는 성립하지 않으므로 관계를 만들지
+    않는 현재 동작이 옳다.
+  - export는 session·message 단위로 `tokens`와 `cost`를 담고 있다(예: input 8166, output 21,
+    cache read 16000). AXtory는 이를 `NOT_COLLECTED`로 두는데, 값이 없어서가 아니라 Session
+    history view를 권위 있는 token telemetry로 쓰지 않는다는 정책 때문이다. 부재가 아니라 정책이
+    이유이므로 `NOT_COLLECTED`가 맞는 코드다.
   - 다만 OpenCode session 목록은 `directory`를 보고한다. Claude·Codex가 digest로 수집하는 작업
     공간 맥락과 같은 값인데 AXtory는 읽지 않는다. 리포트는 `NOT_COLLECTED`로 표시한다.
 - **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가

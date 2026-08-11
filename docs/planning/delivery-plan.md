@@ -313,13 +313,16 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
   `thread/read(includeTurns: true)`를 0.146.1이 paginated thread에 대해 거절한다(실제 40건 중
   5건). 따라서 **0.147.0이 하한**이다. 이 과정에서 client가 서버 error message를 버리고 코드만
   남기던 결함을 고쳤다. 0.147.0 초과 버전은 미검증이다.
-- **부분 완료 — Gemini/OpenCode/Kimi content 검증:** **OpenCode는 실제 대화 2건으로 content
-  계약을 검증했다.** Vendor store의 session 2·message 8과 수집 결과가 일치하고 tool 3건을 얻으며,
-  role과 `partTypes`가 OpenCode 고유 구조를 보존하고, 재수집 신규 Revision 0건, Session 제목·id·
-  경로·projectId 유출 0건이며, Rule Semantic과 Usage Report까지 통과한다. Gemini(auth 미설정)와
-  Kimi(대화형 `/login` 요구)는 자격증명이 없어 남았고 계정 연결은 사용자 결정이라 하지 않았다.
-  세 Source의 discovery·실패 처리·빈 상태 구분은 실제 설치본으로 검증했다. 근거는
-  `research/additional-ai-contracts.md`에 있다.
+- **부분 완료 — Gemini/OpenCode/Kimi content 검증:** **OpenCode는 실제 대화로 완전히 검증했다.**
+  `opencode run`이 인증 없이 동작해 Session을 직접 만들고 변경하며 확인했다. Vendor store와
+  수집 결과가 일치하고, role·`partTypes`가 OpenCode 고유 구조를 보존하며, 상한은 `PARTIAL_LIMIT`,
+  `--project-dir`가 실제로 범위를 좁히고, Tool 이름은 `other` 범주로만 남으며, Codex와의 합산·
+  필터가 정확하고, 삭제 후 `EVIDENCE_REMOVED`를 표시하며, Rule Semantic과 Usage Report를
+  통과하고, 제목·id·경로·projectId 유출은 0건이다. 기존 Session에 turn을 덧붙이면 변경된 것만
+  새 Revision이 되고(신규 1·불변 2) 리포트는 최신 Revision만 세어 재수집을 사용량으로 오인하지
+  않는다. Fork는 declared field도 공유 message id도 없어 관측 불가능하므로 관계를 만들지 않는
+  현재 동작이 옳다. Gemini(auth 미설정)와 Kimi(대화형 `/login` 요구)만 남았고 계정 연결은 사용자
+  결정이라 하지 않았다. 근거는 `research/additional-ai-contracts.md`에 있다.
 
 Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.
 
