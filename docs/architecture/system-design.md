@@ -374,7 +374,10 @@ Contract Test로 검증한다.
 - Claude Session의 `cwd`·`gitBranch` 작업공간 맥락 수집 여부 결정 (해싱 필요)
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
 - OTLP gRPC/protobuf 및 beta trace 수신
-- 통제된 실제 Codex active thread와 fork 사례, 추가 버전 호환성
+- Codex active thread 판정: `exec` thread는 실행 중에도 `status.type`이 `notLoaded`라 현재
+  `active` 검사가 발동하지 않는다. App Server daemon이 관리하는 Session에서 `active`가 나오는지
+  확인하고, 나오지 않으면 판정 근거를 바꿔야 한다
+- Codex 추가 버전 호환성
 - Muse Code Connector: 읽기 경로는 확인했으나 export 필드명이 미공개
 - 자격증명이 있는 실제 세션에서의 Gemini/OpenCode/Kimi content 검증
 - Public Connector SPI 안정화·게시 결정
