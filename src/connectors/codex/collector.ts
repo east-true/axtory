@@ -34,7 +34,8 @@ export interface CodexCollectionOutput {
   schemaVersion: "axtory.codex-collection-output.v1";
   collectionRunId: string;
   source: "CODEX";
-  coverage: "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_COMPACTION" | "PARTIAL_SOURCE_CHANGED";
+  coverage: "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_COMPACTION"
+    | "PARTIAL_SOURCE_CHANGED" | "PARTIAL_UNSETTLED_TURN";
   discovery: {
     environmentType: string;
     installation: string;
@@ -46,6 +47,7 @@ export interface CodexCollectionOutput {
     revisionsCreated: number;
     revisionsUnchanged: number;
     activeViews: number;
+    unsettledTurnViews: number;
     compactedViews: number;
     partialItemViews: number;
   };
@@ -76,6 +78,10 @@ function viewCoverage(listed: CodexThread, detail: CodexThread): CodexMessageCov
   if (listed.status?.type === "active" || detail.status?.type === "active" || listed.updatedAt !== detail.updatedAt) {
     return "PARTIAL_SOURCE_CHANGED";
   }
+  // A turn without a completion time never settled, whether it was interrupted or was still running
+  // when the snapshot was taken. Both leave a view that is not a finished turn, and the isolated
+  // read cannot tell them apart, so the view is reported partial rather than complete.
+  if (detail.turns.some((turn) => turn.completedAt === null)) return "PARTIAL_UNSETTLED_TURN";
   if (detail.turns.some((turn) => turn.items.some((item) => item.type === "contextCompaction"))) {
     return "PARTIAL_COMPACTION";
   }
@@ -112,6 +118,7 @@ export async function collectCodexHistory(
     let compactedViews = 0;
     let partialItemViews = 0;
     let sourceChangedViews = 0;
+    let unsettledTurnViews = 0;
     for (const summary of listed.items) {
       const sourceObjectId = stableId("source", { sourceType: "CODEX", threadId: summary.id });
       const sourceModifiedAt = epochSeconds(summary.updatedAt);
@@ -129,6 +136,7 @@ export async function collectCodexHistory(
         if (projection.messageCoverage === "PARTIAL_COMPACTION") compactedViews += 1;
         if (projection.messageCoverage === "PARTIAL_PAGINATION") partialItemViews += 1;
         if (projection.messageCoverage === "PARTIAL_SOURCE_CHANGED") sourceChangedViews += 1;
+        if (projection.messageCoverage === "PARTIAL_UNSETTLED_TURN") unsettledTurnViews += 1;
         revisionIds.push(unchangedRevisionId);
         database.linkCollectionRevision(collectionRunId, sourceObjectId, unchangedRevisionId, timestamp());
         revisionsUnchanged += 1;
@@ -142,6 +150,7 @@ export async function collectCodexHistory(
       }
       if (coverage === "PARTIAL_COMPACTION") compactedViews += 1;
       if (coverage === "PARTIAL_PAGINATION") partialItemViews += 1;
+      if (coverage === "PARTIAL_UNSETTLED_TURN") unsettledTurnViews += 1;
       const rawJson = canonicalJson({ thread: detail });
       const rawBytes = new TextEncoder().encode(rawJson);
       if (rawBytes.byteLength > RAW_THREAD_LIMIT_BYTES) {
@@ -203,11 +212,13 @@ export async function collectCodexHistory(
       ? "PARTIAL_PAGINATION"
       : sourceChangedViews > 0
         ? "PARTIAL_SOURCE_CHANGED"
-        : partialItemViews > 0
-          ? "PARTIAL_PAGINATION"
-          : compactedViews > 0
-            ? "PARTIAL_COMPACTION"
-            : "COMPLETE_FOR_RETURNED_VIEW";
+        : unsettledTurnViews > 0
+          ? "PARTIAL_UNSETTLED_TURN"
+          : partialItemViews > 0
+            ? "PARTIAL_PAGINATION"
+            : compactedViews > 0
+              ? "PARTIAL_COMPACTION"
+              : "COMPLETE_FOR_RETURNED_VIEW";
     const output: CodexCollectionOutput = {
       schemaVersion: "axtory.codex-collection-output.v1",
       collectionRunId,
@@ -224,6 +235,7 @@ export async function collectCodexHistory(
         revisionsCreated,
         revisionsUnchanged,
         activeViews,
+        unsettledTurnViews,
         compactedViews,
         partialItemViews,
       },
