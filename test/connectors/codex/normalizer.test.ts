@@ -26,6 +26,7 @@ test("Codex normalizer hashes content and preserves only explicit lineage", () =
   const observations = normalizeCodexThread(value, "revision", "PARTIAL_COMPACTION");
   const encoded = JSON.stringify(observations);
   assert.equal(encoded.includes(secret), false);
+  assert.equal(encoded.includes("/private/project"), false, "the workspace path must stay out of observations");
   assert.equal(encoded.includes("thread-private"), false);
   assert.equal(encoded.includes("fork-private"), false);
   assert.equal(encoded.includes("parent-private"), false);

@@ -3,7 +3,7 @@ import type { NormalizedObservation } from "../../core/records.js";
 import { isoFromEpoch } from "../../core/time.js";
 import type { CodexThread, CodexThreadItem, CodexTurn } from "./types.js";
 
-export const CODEX_NORMALIZER_VERSION = "codex-app-server/1";
+export const CODEX_NORMALIZER_VERSION = "codex-app-server/2";
 
 export type CodexMessageCoverage =
   | "COMPLETE_FOR_RETURNED_VIEW"
@@ -43,6 +43,20 @@ function spawnedParentThreadId(source: unknown): string | null {
   if (spawn === null || typeof spawn !== "object" || Array.isArray(spawn)) return null;
   const parent = (spawn as Record<string, unknown>).parent_thread_id;
   return typeof parent === "string" && parent.length > 0 ? parent : null;
+}
+
+/**
+ * Read the branch a thread ran on.
+ *
+ * App Server 0.147.0 reports it as `gitInfo.branch` alongside `sha` and `originUrl`, and `gitInfo`
+ * is null whenever the thread did not run in a Git working tree. A bounded read of 40 real threads
+ * found `gitInfo` null on 24 and `branch` null on 8 of the remaining 16, so an absent branch is a
+ * normal thread rather than a collection gap. Only the name is read and the caller hashes it.
+ */
+function gitBranch(gitInfo: unknown): string | null {
+  if (gitInfo === null || typeof gitInfo !== "object" || Array.isArray(gitInfo)) return null;
+  const branch = (gitInfo as Record<string, unknown>).branch;
+  return typeof branch === "string" && branch.length > 0 ? branch : null;
 }
 
 function toolName(item: CodexThreadItem): string | null {
@@ -87,6 +101,7 @@ export function normalizeCodexThread(
     });
   };
   const createdAt = epochSeconds(thread.createdAt);
+  const branch = gitBranch(thread.gitInfo);
   add({
     stableKey: "session",
     kind: "SNAPSHOT",
@@ -106,6 +121,14 @@ export function normalizeCodexThread(
       sourceKind: sourceKind(thread.source),
       status: typeof thread.status?.type === "string" ? thread.status.type : "unknown",
       ephemeral: thread.ephemeral === true,
+      // The workspace a thread ran in, under the same rule the Claude connector follows: both values
+      // are path- and name-bearing, so only their digests are kept. App Server reports an absolute,
+      // already-normalized `cwd`, so the digest matches the one a report computes from a directory
+      // the caller names, and the two sources group into the same workspace.
+      ...(typeof thread.cwd === "string" && thread.cwd.length > 0
+        ? { workspaceIdentity: sha256(thread.cwd) }
+        : {}),
+      ...(branch ? { branchIdentity: sha256(branch) } : {}),
     },
   });
   const parentThreadId = thread.parentThreadId ?? spawnedParentThreadId(thread.source);

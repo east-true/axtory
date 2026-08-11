@@ -17,18 +17,23 @@ async function seeded(): Promise<string> {
   const database = new AxtoryDatabase(join(directory, "axtory.sqlite3"));
   try {
     database.startCollectionRun("collection_workspace", "CLAUDE_CODE", "2026-03-01T00:00:00.000Z");
-    // Two sessions in project A, one in project B, and one collected before the field existed.
-    const seeds: Array<{ id: string; workspace: string | null; branch: string | null }> = [
-      { id: "a1", workspace: PROJECT_A, branch: "main" },
-      { id: "a2", workspace: PROJECT_A, branch: "feature" },
-      { id: "b1", workspace: PROJECT_B, branch: "main" },
-      { id: "legacy", workspace: null, branch: null },
+    // Two Claude sessions in project A, one in project B, one collected before the field existed,
+    // and a Codex thread that ran in project A outside a Git working tree, so it records a
+    // workspace but no branch.
+    const seeds: Array<{
+      id: string; source: string; workspace: string | null; branch: string | null;
+    }> = [
+      { id: "a1", source: "CLAUDE_CODE", workspace: PROJECT_A, branch: "main" },
+      { id: "a2", source: "CLAUDE_CODE", workspace: PROJECT_A, branch: "feature" },
+      { id: "b1", source: "CLAUDE_CODE", workspace: PROJECT_B, branch: "main" },
+      { id: "legacy", source: "CLAUDE_CODE", workspace: null, branch: null },
+      { id: "codex-a", source: "CODEX", workspace: PROJECT_A, branch: null },
     ];
     for (const [index, seed] of seeds.entries()) {
       const sourceObjectId = `source_${seed.id}`;
       const revisionId = `revision_${seed.id}`;
       const occurredAt = `2026-03-0${index + 1}T00:00:00.000Z`;
-      database.upsertSourceObject(sourceObjectId, "CLAUDE_CODE", `session-${seed.id}`);
+      database.upsertSourceObject(sourceObjectId, seed.source, `session-${seed.id}`);
       database.insertRevision({
         id: revisionId, sourceObjectId, contentHash: String(index).padStart(64, "0"),
         collectedAt: occurredAt, sourceModifiedAt: occurredAt,
@@ -67,12 +72,22 @@ test("a workspace scope narrows the report to sessions from that directory", asy
       workspaceDirectories: [PROJECT_A],
       now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `workspace-${++sequence}`,
     });
-    assert.equal(report.totals.sessions, 2);
+    // Both Claude sessions and the Codex thread ran in project A, so one scope selects all three.
+    assert.equal(report.totals.sessions, 3);
+    assert.deepEqual(
+      report.bySource.filter((item) => item.sessions > 0).map((item) => item.sourceType).sort(),
+      ["CLAUDE_CODE", "CODEX"],
+      "a workspace scope must select every source that ran in that directory",
+    );
     assert.equal(report.scope.requestedWorkspaces, 1);
     assert.equal(report.workspaces.availability, "AVAILABLE");
     assert.equal(report.workspaces.distinctWorkspaces, 1);
     assert.equal(report.workspaces.distinctBranches, 2);
     assert.equal(report.workspaces.sessionsWithoutWorkspace, 0);
+    // The Codex thread carries a workspace but no branch, which the branch count reports on its own
+    // denominator rather than silently shrinking the distinct-branch total.
+    assert.equal(report.workspaces.sessionsWithoutBranch, 1);
+    assert.match(report.workspaces.reason!, /no branch/u);
 
     // The directory the caller named must not survive into the exported report.
     const written = await readFile(join(directory, "usage.json"), "utf8");
@@ -91,10 +106,13 @@ test("an unscoped report counts every workspace and flags revisions that carry n
       dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
       now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `unscoped-${++sequence}`,
     });
-    assert.equal(report.totals.sessions, 4);
+    assert.equal(report.totals.sessions, 5);
     assert.equal(report.scope.requestedWorkspaces, 0);
     assert.equal(report.workspaces.distinctWorkspaces, 2);
+    assert.equal(report.workspaces.distinctBranches, 2);
     assert.equal(report.workspaces.sessionsWithoutWorkspace, 1);
+    // The legacy revision and the Codex thread both lack a branch, for different reasons.
+    assert.equal(report.workspaces.sessionsWithoutBranch, 2);
     assert.equal(report.workspaces.availability, "PARTIAL");
     assert.match(report.workspaces.reason!, /predate the workspace field/u);
   } finally {
@@ -114,6 +132,7 @@ test("a workspace nobody worked in is unavailable rather than zero", async () =>
     assert.equal(report.totals.availability, "SOURCE_UNAVAILABLE");
     assert.equal(report.totals.sessions, null, "an unmatched workspace must not report zero sessions");
     assert.equal(report.workspaces.distinctWorkspaces, null);
+    assert.equal(report.workspaces.distinctBranches, null, "no selected branch must not report zero branches");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

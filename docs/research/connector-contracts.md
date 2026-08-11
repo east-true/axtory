@@ -82,8 +82,8 @@ and hashes only, no content — settled the lineage rows the earlier bounded sam
   existing `sessionId` rather than creating a new one needs a second collection taken after a
   controlled resume; a single snapshot cannot show growth.
 - `cwd` (12 distinct) and `gitBranch` (22 distinct) are the only workspace signals the session view
-  carries. AXtory does not currently read either, and both are path- and name-bearing, so capturing
-  them would require hashing under the same rule the Local Git collector already follows.
+  carries. Both are path- and name-bearing, so AXtory reads them only as digests, under the same rule
+  the Local Git collector already follows. This is what `--workspace-dir` compares against.
 
 ### Controlled resume and fork session
 
@@ -102,9 +102,53 @@ credentials, so the runs used the default root and are real sessions.
   is rewritten to the child, so the shared `uuid` is the only surviving link.
 - A fork is therefore observable through Vendor-assigned message identity rather than through
   content resemblance, and detecting it needs a cross-session comparison the per-session normalizer
-  does not currently perform. Whether AXtory should emit `FORKED_FROM` from shared message identity
-  is an open design decision: the identity is Vendor data, but the relation is inferred from an
-  implementation detail rather than read from a declared field.
+  does not currently perform.
+
+### Does shared message identity actually separate forks?
+
+The controlled run showed a fork shares `uuid` values. It did not show whether anything *else* does,
+which is what decides if the signal can carry a relation. A structural read of the retained local
+history measured that directly, on identity only, with no content compared.
+
+The history held 85 sessions and 14744 messages at the time of this read, all of which carried a
+`uuid`. Note that an earlier read recorded 265 sessions and 24917 messages; the retained history has
+since shrunk, so these two measurements are separate snapshots rather than a correction.
+
+- 14576 of the uuids were unique to one session. Exactly 168 appeared in more than one, and those
+  168 produced exactly **one** session pair out of the 3570 possible. Message identity is therefore
+  effectively global, and sharing it is rare enough to mean something.
+- That pair has the fork shape exactly. The shorter session's 168 uuids are a **contiguous prefix
+  from index 0** of the longer session's 618, in the same order. Same `cwd`, same `gitBranch`.
+- **Zero** pairs shared uuids without one being a prefix of the other. The ambiguous case that would
+  force a guess did not occur.
+- Direction is recoverable and over-determined. The session that contains the other as a prefix is
+  the child, and it was created about 22 hours later. The two signals agreed.
+
+So the rule is sound on real data: no false positive appeared, and the one true case is unambiguous
+in both existence and direction.
+
+### Decision: emit `FORKED_FROM` for Claude, as an INFERRED relation
+
+Recorded here so it is not re-litigated. AXtory should emit the relation, but not the way Codex
+does, and it is not yet implemented.
+
+- **Derivation is `INFERRED`, not `OBSERVED`.** Codex reads a declared `forkedFromId`, so its
+  relation is a Vendor claim. Claude declares nothing; the link survives only because the fork
+  implementation copies messages without reassigning their ids. The identity compared is Vendor
+  data, but the relation is read out of an implementation detail, and the Derivation vocabulary
+  exists to mark exactly that difference. Presenting the two as the same kind of fact would overstate
+  the Claude one.
+- **It belongs in an analysis pass, not the normalizer.** The comparison is between sessions and the
+  normalizer sees one session at a time. Putting it in normalization would either force the
+  normalizer to hold a collection-wide index or push a false relation into a canonical observation.
+- **The predicate is exact prefix containment, not overlap.** Requiring the shared uuids to form a
+  contiguous prefix from index 0 of the longer session, and requiring the prefix holder to be the
+  older session, turns every ambiguous case into no relation instead of a guess. Both conditions
+  held in the observed case and neither is expensive to check.
+- **Silent breakage is the accepted risk.** If Claude ever reassigns ids on fork, the signal
+  disappears and the relation stops being emitted. That is a false negative, which the coverage
+  vocabulary can express, rather than a false positive, which it cannot repair.
+- Only identity digests are compared, so the pass stays content-free like the rest of the pipeline.
 
 ### Controlled worktree session
 
@@ -149,9 +193,9 @@ byte-for-byte with `rollback-live`.
 | ToolUse/ToolResult block presence | VERIFIED | Official API returned both type labels; payload schema remains untrusted/unknown. |
 | Per-message timestamp key | VERIFIED | Key observed locally; optionality and semantics still require synthetic contract tests. |
 | `parent_agent_id` meaning/stability | VERIFIED/NEGATIVE | A bounded read of 265 local sessions found the key present on all 24917 messages and null on every one, including the 113 sessions holding 43 `Agent` invocations. The field carries no observed parent in history reads. |
-| Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. |
+| Active-session snapshot consistency | NEEDS_SPIKE | Hash returned views and report bounded coverage. Still open, and the Codex resolution does not transfer: Codex reads a frozen snapshot, so liveness is hidden by construction and coverage is decided on turn completion instead, whereas the Claude collector re-reads live state with `getSessionInfo` after the message read and compares `lastModified`. That comparison can fire, but no controlled session has been observed changing during a read. |
 | Resume boundaries within one session | NOT_SUPPORTED | Keep SessionRun separate; return UNKNOWN. |
-| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. |
+| Fork lineage in history reads | VERIFIED | A controlled `--fork-session` creates a new session that declares no parent in any field, but copies the parent's messages keeping their Vendor-assigned `uuid` while rewriting `session_id` to the child. Lineage is therefore derivable from shared message identity, not from content resemblance. A read of 85 real sessions found one shared-uuid pair out of 3570, with exact prefix shape and no ambiguous case, so `FORKED_FROM` is decided as an `INFERRED` relation emitted by an analysis pass; not yet implemented. |
 | Compaction boundary in archival reads | VERIFIED/NEGATIVE | Message `type` took only `user`, `assistant`, and `system` across 24917 messages, with `includeSystemMessages: true`. No boundary marker is exposed. |
 | Custom config behavior in SDK reads | VERIFIED | Isolated empty root returned zero sessions and did not expose default-root history. |
 | SDK 0.3.220 with CLI 2.1.226 | VERIFIED | Local bounded read succeeded; no broader compatibility matrix is inferred. |
@@ -170,13 +214,13 @@ session becomes a fixture.
 | Session enumeration and bounded coverage | VERIFIED | Limit hits are `PARTIAL_LIMIT`, never complete or zero-filled. |
 | Session metadata optionality | VERIFIED_BY_TEST | Missing timestamp/source-modified fields remain unavailable and are not replaced with collection time. |
 | Message UUID/ID exclusion | VERIFIED_BY_TEST | Fake identifiers and sensitive values cannot enter the report. |
-| Message order | NEEDS_SPIKE | Controlled fixture must establish ordering and pagination overlap behavior. |
+| Message order | VERIFIED_BY_TEST | Synthetic contract tests establish that pagination preserves the source order, that an overlapping page is deduplicated while coverage drops to `PARTIAL_PAGINATION`, and that a max-page guard never claims completeness. Whether the Vendor guarantees a stable order is not inferred from this. |
 | ToolUse/ToolResult presence | VERIFIED | Only allowlisted type labels are retained; payloads are excluded. |
 | Resume and fork lineage | VERIFIED | Controlled sessions separated the two. Resume keeps the same `sessionId` and grows it, so there is nothing to relate. Fork mints a new `sessionId` whose messages repeat the parent's `uuid` values, which is Vendor-assigned identity rather than duplicate content. |
 | Long session | VERIFIED | Returned 200-message views are explicitly partial. |
 | Compaction | PARTIAL_CAPABILITY | Synthetic contract preserves `PARTIAL_COMPACTION`; real system-message semantics are not inferred. |
 | Active session | VERIFIED_BY_TEST | Post-read metadata changes produce `PARTIAL_SOURCE_CHANGED`; a controlled real active session remains pending. |
-| Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree, and AXtory reads neither field. |
+| Git worktree | VERIFIED | A controlled session inside a real worktree is returned and carries that worktree's own `cwd` and `gitBranch`. It is workspace context rather than lineage: no key relates it to a session in the main working tree. AXtory now reads both fields, but only as digests and only as workspace context, so a worktree still yields no relation. |
 | Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 | HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |
@@ -262,6 +306,32 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
 - Whether an App Server daemon reading live state reports `active` remains untested. It would not
   change the collector, which reads a snapshot on purpose.
 
+### Workspace context in the thread view
+
+A structural read of 40 real threads out of 193 listed, on CLI 0.147.0, settled how App Server
+reports the directory a thread ran in. This is the Codex counterpart of the Claude session's `cwd`
+and `gitBranch`.
+
+- `cwd` was present and non-empty on all 40, absolute on all 40, and already equal to its own
+  `resolve()` on all 40, with no trailing slash. The list summary and the detail view agreed on it
+  for every thread. Hashing it therefore produces the same digest a report computes from a directory
+  the caller names, which is what lets one `--workspace-dir` select Claude and Codex sessions
+  together. 7 distinct directories appeared.
+- `gitInfo` is null on 24 of the 40. When present it exposes `sha`, `branch`, and `originUrl`, and
+  `branch` was itself null on 8 of those 16. A branch is therefore recorded by only 8 of 40 threads,
+  and its absence is a thread that did not run in a Git working tree rather than a collection gap.
+  Distinct-branch counts consequently need their own denominator instead of the workspace one.
+- `originUrl` is repository identity, which the Claude session view does not expose. It would
+  separate a worktree from a branch switch — the distinction the Claude read could not make.
+  **Decided: not collected.** The Claude session view has no counterpart, so collecting it would make
+  the two sources asymmetric, and unlike a local path it names a remote repository, which is a weaker
+  case for retention even hashed. No product requirement asks for the distinction it would enable.
+- Only the digests of `cwd` and `gitInfo.branch` are kept, under the rule the Claude connector and
+  the Local Git collector already follow. `sha` and `originUrl` are not read. Confirmed on a real
+  50-thread collection: 7 distinct workspaces, 3 distinct branches, 42 threads without one, and no
+  path in the exported report.
+- Normalizer version moves to `codex-app-server/2`.
+
 ### Contract status
 
 | Contract | Current status | Handling |
@@ -275,6 +345,8 @@ Four bounded `codex exec` runs on CLI 0.147.0, collected into isolated data dire
 | subagent lineage | VERIFIED | A bounded read of 189 threads found 126 spawned subagents. All declare `source.subAgent.thread_spawn.parent_thread_id` and none populate the top-level `parentThreadId`. AXtory reads the nested field and hashes it. |
 | fork vs spawn | VERIFIED | A spawned subagent repeats its parent in `forkedFromId`, so App Server implements spawning as a fork. Only `SUBAGENT_OF` is emitted for that link; a `forkedFromId` pointing elsewhere still yields `FORKED_FROM`. A controlled `exec resume` is not a fork: it keeps the same thread id and emits no relation. |
 | compaction | VERIFIED/PARTIAL | Event type observed; returned view is marked partial, semantics are not reconstructed. |
+| workspace context | VERIFIED | `cwd` is present, absolute, and already normalized on all 40 inspected threads, and matches between list and detail, so its digest is comparable with the Claude connector's. `gitInfo.branch` is recorded by 8 of 40; an absent branch is a thread outside a Git working tree. |
+| repository identity | NOT_COLLECTED | `gitInfo.originUrl` would separate a worktree from a branch switch. Decided against: Claude exposes no counterpart, it names a remote repository rather than a local path, and no requirement needs the distinction. |
 | internal JSONL parsing | NOT_SUPPORTED | App Server reads the rollout; AXtory never parses it. |
 | experimental turn pagination | NOT_SUPPORTED | Stable whole-thread read is used until the paged API stabilizes. |
 

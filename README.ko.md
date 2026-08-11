@@ -207,10 +207,24 @@ node dist/src/cli.js report-usage \
   --source claude --workspace-dir .
 ```
 
+Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같은 방식으로 해싱하므로, 하나의
+`--workspace-dir`가 두 Source의 Session을 함께 선택합니다. 추가 AI Source는 작업 디렉터리를
+전혀 보고하지 않아 작업공간이 없으며 범위를 지정한 리포트에서 제외됩니다.
+
 리포트는 선택된 Session이 몇 개의 작업공간과 branch에 걸쳐 있는지도 셉니다. 이 필드가 생기기
 전에 수집된 Revision에는 작업공간이 없습니다. 범위를 지정한 리포트에서는 제외되고, 지정하지
 않은 리포트에서는 `sessionsWithoutWorkspace`로 세어 해당 항목을 `PARTIAL`로 표시합니다.
-다시 수집하면 채워집니다.
+
+다시 수집해도 채워지지 않습니다. Collector는 원천 수정 시각이 그대로면 기존 Revision을
+재사용하고 Revision의 정규화 관측치는 한 번만 기록되므로, 이후 변경되지 않는 Session은 처음
+수집될 때의 정규화를 유지합니다. Normalizer가 바뀐 뒤 새로 생기거나 수정된 Session만 작업공간을
+갖습니다. 새 `--data-dir`로 수집하면 완전히 채워진 리포트를 얻을 수 있으며, 기존 디렉터리의
+재정규화는 아직 지원하지 않습니다.
+
+branch는 별도의 분모로 셉니다. 작업공간은 있으나 branch가 없는 Session이 있기 때문입니다.
+Git 작업 트리 밖에서 실행된 Codex thread는 branch를 보고하지 않는데, 이는 수집 누락이 아니라
+정상적인 thread이므로 해당 항목을 partial로 표시하지 않고 `sessionsWithoutBranch`만 올립니다.
+선택된 Session 중 branch를 기록한 것이 없으면 `distinctBranches`는 0이 아니라 `null`입니다.
 
 여러 Provider를 합치려면 `--source`를 반복하고, 수집된 모든 Session Source를 포함하려면
 생략합니다. 리포트는 하나의 로컬 `--data-dir`만 읽습니다. 반복 `--source`는 각 Collector가

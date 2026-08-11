@@ -157,6 +157,11 @@ SPI 후보 문서로 제안한다. 공통되지 않은 항목은 Connector 내�
 list/detail 수정시각 불일치, compaction, non-full turn, pagination bound를 완전한 이력으로
 표시하지 않는다. fork/parent는 공식 응답의 명시 필드가 있을 때만 관계를 만든다.
 
+**후속:** 격리 읽기에서는 `status`와 `updatedAt`이 liveness를 알릴 수 없음을 실제 사례로
+확인하고, 끝나지 않은 turn을 `completedAt === null`로 판정하는 `PARTIAL_UNSETTLED_TURN`을
+추가했다. thread의 `cwd`와 `gitInfo.branch`도 Claude와 같은 해싱 규칙으로 digest만 수집해
+`--workspace-dir`가 두 Source를 함께 선택하도록 했다. Normalizer는 `codex-app-server/2`다.
+
 Claude/Codex 공통 최소 계약은 `architecture/connector-spi-candidate.md`에 후보로 기록했지만,
 공개 SPI는 아직 만들지 않았다. offset/cursor, SDK/stdio lifecycle, active consistency,
 sourceKind와 lineage는 Connector 내부에 남겼다.
@@ -252,6 +257,15 @@ AXtory는 뺄셈할 실제 소요 시간을 기록하지 않으므로 이 합계
 schema v9는 Retention이 지운 Verification Note 수를 `deletion_runs`에 남겨 삭제 감사가 실제
 수행분과 일치하게 했다.
 
+여섯 번째로 `--workspace-dir`가 Session이 실행된 디렉터리로 리포트 범위를 좁힌다. Claude와
+Codex 모두 절대 경로와 branch 이름의 digest만 기록하고 리포트도 호출자가 지정한 경로를 같은
+방식으로 해싱해 digest끼리만 비교하므로, 경로와 branch 이름은 리포트에 들어가지 않는다. 아무도
+작업하지 않은 디렉터리는 0이 아니라 `SOURCE_UNAVAILABLE`이다. branch는 작업공간과 별도 분모로
+센다. Git 작업 트리 밖에서 실행된 Codex thread는 branch가 없는데 이는 수집 누락이 아니기
+때문이다. 다만 Normalizer 버전이 올라도 기존 Revision은 재정규화되지 않으므로 이 필드는 이후
+새로 생기거나 변경되는 Session에만 채워진다. 한계와 배경은
+`architecture/system-design.md`에 기록했다.
+
 **정합성 보강:** Connector·Live·Report 경로 감사로 확인한 결함을 함께 수정했다. 원천 시각은
 UTC로 정규화한 뒤에만 저장하고, live envelope 하나의 실패가 같은 실행에서 적재된 Revision을
 가리지 않으며, 식별자 없는 Message는 partial coverage로 보존한다. Vendor 고유 id가 없으면
@@ -275,6 +289,20 @@ Receiver는 rate limit 이전에 인증해 미인증 트래픽이 예산을 소�
 8. **완료:** Phase 9 업무 시스템 Connector와 explicit commit identity 기반 Local Git 연결
 9. **완료:** Phase 10 Gemini CLI/OpenCode/Cursor/Aider capability별 Source 수집
 10. **완료:** Phase 10.5 최신 Revision 기반 Usage Analytics Console/JSON 리포트
+11. **다음:** 아래 네 가지
+
+- **Claude `FORKED_FROM` 구현:** 발행하기로 결정했다. 실제 이력 85 Session에서 공유 uuid 쌍이
+  3570쌍 중 1쌍이고 정확한 prefix 형태이며 오탐이 0이었다. Normalizer가 아니라 분석 단계에서
+  `INFERRED`로 만들고, 판정식은 0번부터의 연속 prefix와 생성 시각 순서를 모두 요구한다. 근거와
+  결정 이유는 `architecture/system-design.md`와 `research/connector-contracts.md`에 있다.
+- **재정규화:** Normalizer 버전이 올라도 기존 Revision은 다시 정규화되지 않는다. Revision을 새로
+  만들 것인지 파생 관측치만 재계산할 것인지 정해야 하는 열린 설계 결정이다. 현재는 새
+  `--data-dir` 수집이 유일한 우회다.
+- **Claude 실제 active Session:** 목록 읽기와 재읽기 사이에 변경되는 통제된 Session이 없다.
+  구현과 합성 테스트는 있으나 실제 사례가 없다. Codex는 격리 snapshot을 읽으므로 해당하지 않는다.
+- **자격증명이 있는 Gemini/OpenCode/Kimi content 검증과 Codex 추가 버전 호환성.**
+
+Codex `gitInfo.originUrl` 수집은 하지 않기로 결정했다.
 
 자동 AnalysisUnit, ROI/Impact Analysis, Dashboard는 다음 범위다. Usage Report는 Dashboard
 없이도 현재 로컬 데이터를 직접 읽을 수 있는 CLI 계층으로 완료했다.

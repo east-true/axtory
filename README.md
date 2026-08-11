@@ -208,10 +208,25 @@ node dist/src/cli.js report-usage \
   --source claude --workspace-dir .
 ```
 
+Claude and Codex both record the workspace, and both hash the same absolute path the same way, so
+one `--workspace-dir` selects a directory's sessions from either source. The additional AI sources
+report no working directory at all, so they carry no workspace and a scoped report excludes them.
+
 The report also counts how many distinct workspaces and branches the selected sessions ran in.
 Revisions collected before this field existed carry no workspace: they are excluded from a scoped
 report and counted as `sessionsWithoutWorkspace` in an unscoped one, which marks that section
-`PARTIAL`. Recollecting fills them in.
+`PARTIAL`.
+
+Recollecting does **not** backfill them. A collector reuses a revision whenever the source's
+modification time is unchanged, and a revision's normalized observations are written once, so a
+session that never changes again keeps the normalization it was first collected with. Only sessions
+that are new or modified after the normalizer changed carry the workspace. Collecting into a fresh
+`--data-dir` gives a fully populated report; re-normalizing an existing one is not yet supported.
+
+A branch is counted on its own denominator because a session can record a workspace without one. A
+Codex thread that did not run in a Git working tree reports no branch, which is a normal thread
+rather than a collection gap, so it raises `sessionsWithoutBranch` instead of marking the section
+partial. When no selected session records a branch, `distinctBranches` is `null` rather than zero.
 
 Repeat `--source` to combine selected providers, or omit it to include every collected session
 source. A report reads exactly one local `--data-dir`: repeated `--source` combines providers only

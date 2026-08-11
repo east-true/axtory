@@ -95,6 +95,7 @@ export interface UsageReportOutput {
     distinctWorkspaces: number | null;
     distinctBranches: number | null;
     sessionsWithoutWorkspace: number;
+    sessionsWithoutBranch: number;
   };
   toolCategories: readonly { category: string; count: number; percentage: number }[];
   timelineByUtcDay: readonly {
@@ -834,6 +835,12 @@ async function buildUsageReport(
   const sessionsWithWorkspace = sessions
     .filter((item) => typeof item.session.payload.workspaceIdentity === "string").length;
   const sessionsWithoutWorkspace = sessions.length - sessionsWithWorkspace;
+  // A branch is counted separately from a workspace because a session can record one without the
+  // other. A Codex thread outside a Git working tree reports no branch at all, so the distinct-branch
+  // count needs its own denominator rather than borrowing the workspace one.
+  const sessionsWithBranch = sessions
+    .filter((item) => typeof item.session.payload.branchIdentity === "string").length;
+  const sessionsWithoutBranch = sessions.length - sessionsWithBranch;
 
   const report: UsageReportOutput = {
     schemaVersion: "axtory.usage-report.v2", generatedAt, analysisRunId,
@@ -881,13 +888,19 @@ async function buildUsageReport(
         ? (sessionsWithoutWorkspace > 0 ? "PARTIAL" : "AVAILABLE")
         : (hasSource ? "NOT_COLLECTED" : "SOURCE_UNAVAILABLE"),
       reason: sessionsWithWorkspace === 0
-        ? "No selected session records a workspace; revisions collected before the field existed carry none."
+        ? "No selected session records a workspace; revisions collected before the field existed carry none, " +
+          "and some sources do not report one."
         : sessionsWithoutWorkspace > 0
-          ? "Some selected revisions predate the workspace field and are excluded from these counts."
-          : null,
+          ? "Some selected revisions predate the workspace field or come from a source that reports none, " +
+            "and are excluded from these counts."
+          : sessionsWithoutBranch > 0
+            ? "Every selected session records a workspace. Some record no branch, either because the source " +
+              "reports none or because the session did not run in a Git working tree."
+            : null,
       distinctWorkspaces: sessionsWithWorkspace > 0 ? workspaceDigests.size : null,
-      distinctBranches: sessionsWithWorkspace > 0 ? branchDigests.size : null,
+      distinctBranches: sessionsWithBranch > 0 ? branchDigests.size : null,
       sessionsWithoutWorkspace,
+      sessionsWithoutBranch,
     },
     toolCategories, timelineByUtcDay,
     semantics: {
@@ -1030,11 +1043,16 @@ export function renderUsageReport(report: UsageReportOutput): string {
     `Workspaces: ${report.workspaces.availability}` +
       (report.workspaces.distinctWorkspaces === null
         ? ""
-        : `, ${report.workspaces.distinctWorkspaces} distinct across ` +
-          `${report.workspaces.distinctBranches} branches`) +
+        : `, ${report.workspaces.distinctWorkspaces} distinct`) +
       (report.workspaces.sessionsWithoutWorkspace === 0
         ? ""
         : `, ${report.workspaces.sessionsWithoutWorkspace} sessions without one`),
+    `Branches: ${report.workspaces.distinctBranches === null
+      ? "unavailable"
+      : `${report.workspaces.distinctBranches} distinct`}` +
+      (report.workspaces.sessionsWithoutBranch === 0
+        ? ""
+        : `, ${report.workspaces.sessionsWithoutBranch} sessions without one`),
     `Session views: ${report.coverage.completeSessions} complete, ${report.coverage.partialSessions} partial, ` +
       `${report.coverage.unknownSessions} unknown`,
     `Revision heads: ${report.coverage.completedCollectionHeads} completed-collection, ` +
