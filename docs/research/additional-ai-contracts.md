@@ -131,8 +131,11 @@ Aider는 chat history Markdown 파일 경로를 설정하고 보존할 수 있�
     cache read 16000). AXtory는 이를 `NOT_COLLECTED`로 두는데, 값이 없어서가 아니라 Session
     history view를 권위 있는 token telemetry로 쓰지 않는다는 정책 때문이다. 부재가 아니라 정책이
     이유이므로 `NOT_COLLECTED`가 맞는 코드다.
-  - 다만 OpenCode session 목록은 `directory`를 보고한다. Claude·Codex가 digest로 수집하는 작업
-    공간 맥락과 같은 값인데 AXtory는 읽지 않는다. 리포트는 `NOT_COLLECTED`로 표시한다.
+  - OpenCode session 목록은 `directory`를 보고하며(`created, directory, id, projectId, title,
+    updated`) 값은 실행 디렉터리와 정확히 일치한다. 이제 Claude·Codex와 같은 규칙으로 digest만
+    수집한다. 실제 세션에서 이 저장소의 digest가 Claude가 같은 경로에 대해 계산한 값과 같아,
+    서로 다른 Provider의 Session이 한 작업공간으로 묶이는 것을 확인했다. Branch는 보고하지 않아
+    `sessionsWithoutBranch`로 남는다.
 - **Kimi Code 0.34.0:** 실행 파일이 PATH가 아니라 `~/.kimi-code/bin/kimi`에 있어 discovery가
   installation을 `SOURCE_UNAVAILABLE`로 보고한다. Kimi 읽기는 파일 기반이라 실행 파일이 필요
   없으므로 enumeration은 `AVAILABLE`이고, store는 있으나 session 디렉터리가 없어 0건이다. 세 값

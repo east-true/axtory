@@ -8,6 +8,7 @@ import { AiderSourceApi } from "../../../src/connectors/additional-ai/aider.js";
 import type { AdditionalAiCommandRunner } from "../../../src/connectors/additional-ai/command.js";
 import { CursorSourceApi } from "../../../src/connectors/additional-ai/cursor.js";
 import { GeminiCliSourceApi } from "../../../src/connectors/additional-ai/gemini.js";
+import { sha256 } from "../../../src/core/canonical-json.js";
 import { OpenCodeSourceApi } from "../../../src/connectors/additional-ai/opencode.js";
 
 test("Gemini session lists retain IDs but discard preview content", async () => {
@@ -93,6 +94,31 @@ test("OpenCode uses pure JSON list/export commands and preserves source-change c
   assert.deepEqual(calls[1]?.args.slice(0, 2), ["--pure", "export"]);
   assert.equal(calls.every((call) => call.env?.OPENCODE_DISABLE_AUTOUPDATE === "true" &&
     call.env?.OPENCODE_DISABLE_PRUNE === "true"), true);
+});
+
+test("OpenCode records the session directory as a digest and nothing else", async () => {
+  const workspace = "/home/someone/project-a";
+  const runner: AdditionalAiCommandRunner = {
+    async run(_command, args) {
+      if (args.includes("list")) return {
+        exitCode: 0, stderr: "",
+        stdout: JSON.stringify([
+          { id: "ses_with_dir", title: "t", directory: workspace, created: 1, updated: 2 },
+          { id: "ses_no_dir", title: "t", created: 1, updated: 2 },
+        ]),
+      };
+      throw new Error("unexpected command");
+    },
+  };
+  const api = new OpenCodeSourceApi({ executablePath: "opencode", projectDirectory: "/project", runner });
+  const listed = await api.listSessions({ limit: 10 });
+
+  // The digest must equal the one another connector computes for the same absolute directory, so
+  // sessions from different providers group into one workspace.
+  assert.equal(listed.items[0]?.workspaceIdentity, sha256(workspace));
+  assert.equal(listed.items[0]?.workspaceIdentity?.includes("project-a"), false);
+  // A summary without a directory carries no workspace rather than an invented one.
+  assert.equal(listed.items[1]?.workspaceIdentity, undefined);
 });
 
 test("Aider reads only an explicit documented chat history file", async () => {

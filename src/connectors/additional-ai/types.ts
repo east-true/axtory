@@ -18,6 +18,8 @@ export interface AdditionalAiSessionSummary {
   externalId: string;
   createdAt: string | null;
   sourceUpdatedAt: string | null;
+  // Digest of the directory a session ran in, when the provider reports one. Only OpenCode does.
+  workspaceIdentity?: string;
 }
 
 export interface AdditionalAiMessage {

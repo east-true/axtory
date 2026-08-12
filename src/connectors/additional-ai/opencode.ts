@@ -51,6 +51,12 @@ export class OpenCodeSourceApi implements AdditionalAiSourceApi {
         provider: this.provider, scopeIdentity: this.scopeIdentity,
         externalId: externalIdentifier(item.id, "OpenCode session id"),
         createdAt: isoTimestamp(item.created), sourceUpdatedAt: isoTimestamp(item.updated),
+        // OpenCode reports the absolute directory a session ran in. Only its digest is kept, under
+        // the rule the Claude and Codex connectors already follow, so a session here groups with
+        // sessions those providers recorded for the same directory.
+        ...(typeof item.directory === "string" && item.directory.length > 0
+          ? { workspaceIdentity: sha256(item.directory) }
+          : {}),
       };
     });
     return {

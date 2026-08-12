@@ -217,10 +217,10 @@ node dist/src/cli.js report-usage \
   --source claude --workspace-dir .
 ```
 
-Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같은 방식으로 해싱하므로, 하나의
-`--workspace-dir`가 두 Source의 Session을 함께 선택합니다. 추가 AI Source는 작업공간을 기록하지
-않아 범위를 지정한 리포트에서 제외됩니다. OpenCode는 session 목록에 `directory`를 보고하므로
-가능하지만 AXtory가 아직 읽지 않습니다.
+Claude·Codex·OpenCode 모두 작업공간을 기록하며 같은 절대 경로를 같은 방식으로 해싱하므로, 하나의
+`--workspace-dir`가 세 Source의 Session을 함께 선택합니다. OpenCode는 branch를 보고하지 않아
+`sessionsWithoutBranch`로 집계됩니다. 나머지 추가 AI Source는 디렉터리를 보고하지 않아 작업공간이
+없고, 범위를 지정한 리포트에서 제외됩니다.
 
 `--branch`도 같은 방식으로 범위를 좁히며, Connector와 동일하게 branch 이름을 해싱합니다. 같은
 branch 이름이 여러 저장소에 존재할 수 있으므로 하나를 지목하려면 `--workspace-dir`와 함께
