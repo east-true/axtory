@@ -206,6 +206,39 @@ constant useless one, and inventing a recency threshold would be a guess of exac
 coverage vocabulary exists to avoid. The honest position is that the limitation is a Vendor gap,
 recorded here, and that a later collection supersedes the partial one with a complete revision.
 
+### Controlled OTLP transport and trace read
+
+The open item paired two questions that turn out to have different answers, and both were settled
+with a loopback listener and an isolated `--settings` file so no global configuration was touched.
+
+- **gRPC/protobuf is not a gap.** AXtory writes the exporter settings for the endpoint it then
+  receives, and it sets `OTEL_EXPORTER_OTLP_*_PROTOCOL` to `http/json`. The protocol is AXtory's own
+  choice on both ends, so a gRPC receiver would decode traffic nothing sends.
+- **Claude Code emits no traces.** The CLI binary contains `OTEL_TRACES_EXPORTER`,
+  `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `/v1/traces`, and the span limit and sampler variables, but
+  those are constants of the OpenTelemetry SDK it bundles rather than evidence of instrumentation.
+  Two runs with traces explicitly enabled and the endpoint proven reachable — 4 log and 2 metric
+  requests arrived — produced zero trace requests, including a run that invoked a tool.
+- Presence of a configuration key in a vendored dependency says what the SDK accepts, not what the
+  product emits. Only the delivered traffic distinguishes the two.
+- Traces would also carry nothing new. A span contributes duration and parent/child structure, and
+  the captured log records already hold `duration_ms` and `total_duration_ms` alongside
+  `event.sequence` for ordering and `session.id`, `prompt.id`, `request_id`, `client_request_id`,
+  `message.uuid`, and `tool_use_id` to correlate an operation with the one that contained it.
+  Claude Code's telemetry is event-shaped, and the timing a trace exists to report is already an
+  attribute on those events. So the answer is not only that no span is sent but that none is needed.
+- The same capture confirmed two content controls hold. `OTEL_LOG_USER_PROMPTS=0` and its
+  siblings reduce `prompt` and `response` to `<REDACTED>` while keeping `prompt_length` and
+  `response_length`. Identity does arrive: every one of the 117 records carried `user.email`,
+  `user.account_uuid`, `user.account_id`, and `organization.id`. That reaches the Spool, which is
+  classified `PERSONAL_DATA` and expires under retention, and `test/live/ingestion.test.ts` already
+  asserts none of it survives into a normalized observation or an export.
+- This covers AXtory's whole OTel surface, which is Claude-only: the receiver's channels are
+  `CLAUDE_HOOK`, `CLAUDE_OTEL_METRICS`, and `CLAUDE_OTEL_LOGS`.
+- Measured on CLI 2.1.227 over two bounded non-interactive runs. A later version that adds spans
+  would reopen the trace question, and the answer would then be a receiver change rather than a
+  transport one.
+
 ### Controlled worktree session
 
 A fourth run created a session inside a real `git worktree` of this repository.
@@ -280,7 +313,9 @@ session becomes a fixture.
 | Subagent lineage | VERIFIED/NEGATIVE | 43 `Agent` invocations produced no additional session and no non-null `parent_agent_id`. Unlike Codex, subagent work stays inside the invoking session as tool occurrences, so there is no session-level link to record. |
 | Corruption and unsupported version | VERIFIED_BY_TEST/PARTIAL | Corrupted and unsupported-schema fixtures fail explicitly; controlled Vendor SDK/CLI version cases remain pending. |
 | HTTP Hook receiver | VERIFIED | A controlled session with CLI 2.1.226 delivered real `PostToolUse`, `Stop`, and `SessionEnd` posts to the loopback receiver. Isolation used `claude --settings <file>`, so no global configuration was read or written. |
-| OTLP `http/json` metrics/logs | VERIFIED | The same session delivered real logs and metrics that normalized to token, model, estimated cost, and latency facts across both channels. gRPC/protobuf and traces remain unsupported. |
+| OTLP `http/json` metrics/logs | VERIFIED | The same session delivered real logs and metrics that normalized to token, model, estimated cost, and latency facts across both channels. |
+| OTLP gRPC/protobuf transport | NOT_REQUIRED | AXtory writes the exporter configuration it then receives, and it sets `http/json`, so no traffic would take a gRPC path. |
+| OTLP traces | NOT_REQUIRED | Two bounded runs with `OTEL_TRACES_EXPORTER=otlp` and a reachable traces endpoint delivered 4 log and 2 metric requests and zero trace requests, including a run that used a tool. The log channel already carries what a span would add: per-operation `duration_ms` and `total_duration_ms`, `event.sequence` for ordering, and `session.id`, `prompt.id`, `request_id`, and `tool_use_id` to correlate events. |
 
 `VERIFIED_BY_TEST` means a synthetic unit/contract test validated AXtory behavior, not that the
 installed Vendor implementation was exercised for that scenario.
