@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose an improvement to AXtory
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What evidence, observation, or analysis gap are you trying to address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - AI source connector
+        - Work-system connector
+        - Local Git evidence
+        - Normalization / evidence model
+        - Analysis / reporting
+        - Privacy / retention
+        - CLI / UX
+        - Documentation
+        - Other
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Source contract or evidence
+      description: Link or describe the official interface or documented behavior when relevant.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
