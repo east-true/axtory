@@ -353,12 +353,14 @@ async function main(args: readonly string[]): Promise<void> {
     }
     const requestedSources = requestedSourceTypes(args);
     const workspaceDirectories = options(args, "--workspace-dir");
+    const branches = options(args, "--branch");
     const output = await generateUsageReport({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
       ...(option(args, "--until") ? { until: option(args, "--until")! } : {}),
       ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
       ...(workspaceDirectories.length > 0 ? { workspaceDirectories } : {}),
+      ...(branches.length > 0 ? { branches } : {}),
       allowConversationContent: args.includes("--allow-conversation-content"),
     });
     process.stdout.write(renderUsageReport(output));

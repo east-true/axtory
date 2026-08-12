@@ -41,6 +41,7 @@ export interface UsageReportOutput {
     until: string | null;
     sourceTypes: readonly string[];
     requestedWorkspaces: number;
+    requestedBranches: number;
     latestRevisionPerSourceObject: true;
     timeSemantics: "SOURCE_OCCURRED_AT";
   };
@@ -319,6 +320,7 @@ function loadSessionInputs(
   database: AxtoryDatabase,
   sourceTypes: ReadonlySet<string>,
   workspaceIdentities: ReadonlySet<string>,
+  branchIdentities: ReadonlySet<string>,
 ): SessionInput[] {
   return database.latestRevisions().flatMap((revision): SessionInput[] => {
     if (sourceTypes.size > 0 && !sourceTypes.has(revision.sourceType)) return [];
@@ -327,6 +329,11 @@ function loadSessionInputs(
     if (!session) return [];
     // A revision collected before the workspace field existed carries no identity, so it cannot
     // match a requested workspace and is excluded rather than silently counted as a match.
+    if (branchIdentities.size > 0 &&
+      !(typeof session.payload.branchIdentity === "string" &&
+        branchIdentities.has(session.payload.branchIdentity))) {
+      return [];
+    }
     if (workspaceIdentities.size > 0 &&
       !(typeof session.payload.workspaceIdentity === "string" &&
         workspaceIdentities.has(session.payload.workspaceIdentity))) {
@@ -457,6 +464,7 @@ export async function generateUsageReport(options: {
   until?: string;
   sourceTypes?: readonly string[];
   workspaceDirectories?: readonly string[];
+  branches?: readonly string[];
   allowConversationContent?: boolean;
   now?: () => Date;
   randomId?: () => string;
@@ -469,6 +477,10 @@ export async function generateUsageReport(options: {
   // The caller names a directory; only its digest is compared, so the path never enters the report.
   const workspaceDirectories = [...new Set(options.workspaceDirectories ?? [])].sort();
   const workspaceIdentities = new Set(workspaceDirectories.map((value) => sha256(resolve(value))));
+  // A branch name is hashed the same way a connector hashes it. Branch alone can match more than one
+  // repository, which the workspace counts in the report make visible.
+  const branches = [...new Set(options.branches ?? [])].sort();
+  const branchIdentities = new Set(branches.map((value) => sha256(value)));
   const now = options.now ?? (() => new Date());
   const randomId = options.randomId ?? randomUUID;
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
@@ -478,7 +490,7 @@ export async function generateUsageReport(options: {
   try {
     return await buildUsageReport(database, (reopened) => { database = reopened; }, {
       ...options, dataDirectory, databasePath, since, until, sourceTypes, sourceTypeSet,
-      workspaceIdentities, now, randomId,
+      workspaceIdentities, branchIdentities, now, randomId,
     });
   } finally {
     database.close();
@@ -497,16 +509,18 @@ async function buildUsageReport(
     sourceTypes: readonly string[];
     sourceTypeSet: ReadonlySet<string>;
     workspaceIdentities: ReadonlySet<string>;
+    branchIdentities: ReadonlySet<string>;
     allowConversationContent?: boolean;
     now: () => Date;
     randomId: () => string;
   },
 ): Promise<UsageReportOutput> {
   const {
-    since, until, sourceTypes, sourceTypeSet, workspaceIdentities, dataDirectory, databasePath, now, randomId,
+    since, until, sourceTypes, sourceTypeSet, workspaceIdentities, branchIdentities,
+    dataDirectory, databasePath, now, randomId,
   } = options;
   let database = initialDatabase;
-  let inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities);
+  let inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities, branchIdentities);
   let selected = selectedSessions(inputs, since, until);
   const semanticInputs = selected.sessions.filter(supportsRuleSemantics);
   const eligibleSemanticInputs = semanticInputs.filter((input) => {
@@ -547,7 +561,7 @@ async function buildUsageReport(
       database = new AxtoryDatabase(databasePath);
       onReopen(database);
     }
-    inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities);
+    inputs = loadSessionInputs(database, sourceTypeSet, workspaceIdentities, branchIdentities);
     selected = selectedSessions(inputs, since, until);
   }
 
@@ -847,6 +861,7 @@ async function buildUsageReport(
     analyzerVersion: USAGE_REPORT_ANALYZER_VERSION, derivation: "CALCULATED",
     scope: {
       since, until, sourceTypes, requestedWorkspaces: workspaceIdentities.size,
+      requestedBranches: branchIdentities.size,
       latestRevisionPerSourceObject: true,
       timeSemantics: "SOURCE_OCCURRED_AT",
     },

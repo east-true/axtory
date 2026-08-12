@@ -28,6 +28,8 @@ async function seeded(): Promise<string> {
       { id: "b1", source: "CLAUDE_CODE", workspace: PROJECT_B, branch: "main" },
       { id: "legacy", source: "CLAUDE_CODE", workspace: null, branch: null },
       { id: "codex-a", source: "CODEX", workspace: PROJECT_A, branch: null },
+      // Same branch name in a different repository: a branch scope alone cannot separate them.
+      { id: "b-main", source: "CLAUDE_CODE", workspace: PROJECT_B, branch: "main" },
     ];
     for (const [index, seed] of seeds.entries()) {
       const sourceObjectId = `source_${seed.id}`;
@@ -106,8 +108,9 @@ test("an unscoped report counts every workspace and flags revisions that carry n
       dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
       now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `unscoped-${++sequence}`,
     });
-    assert.equal(report.totals.sessions, 5);
+    assert.equal(report.totals.sessions, 6);
     assert.equal(report.scope.requestedWorkspaces, 0);
+    assert.equal(report.scope.requestedBranches, 0);
     assert.equal(report.workspaces.distinctWorkspaces, 2);
     assert.equal(report.workspaces.distinctBranches, 2);
     assert.equal(report.workspaces.sessionsWithoutWorkspace, 1);
@@ -133,6 +136,41 @@ test("a workspace nobody worked in is unavailable rather than zero", async () =>
     assert.equal(report.totals.sessions, null, "an unmatched workspace must not report zero sessions");
     assert.equal(report.workspaces.distinctWorkspaces, null);
     assert.equal(report.workspaces.distinctBranches, null, "no selected branch must not report zero branches");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a branch scope selects that branch and shows when it spans repositories", async () => {
+  const directory = await seeded();
+  try {
+    let sequence = 0;
+    const shared = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
+      branches: ["main"],
+      now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `branch-${++sequence}`,
+    });
+    // "main" exists in both projects, so the scope selects both and the workspace count says so
+    // rather than presenting unrelated repositories as one branch.
+    assert.equal(shared.totals.sessions, 3);
+    assert.equal(shared.workspaces.distinctWorkspaces, 2);
+    assert.equal(shared.scope.requestedBranches, 1);
+
+    const paired = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
+      branches: ["main"], workspaceDirectories: [PROJECT_A],
+      now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `paired-${++sequence}`,
+    });
+    assert.equal(paired.totals.sessions, 1, "a branch paired with its workspace names one unit");
+    assert.equal(paired.workspaces.distinctWorkspaces, 1);
+
+    const absent = await generateUsageReport({
+      dataDirectory: directory, jsonOutputPath: join(directory, "usage.json"),
+      branches: ["never-checked-out"],
+      now: () => new Date("2026-03-10T00:00:00.000Z"), randomId: () => `absent-branch-${++sequence}`,
+    });
+    assert.equal(absent.totals.availability, "SOURCE_UNAVAILABLE");
+    assert.equal(absent.totals.sessions, null, "an unmatched branch must not report zero sessions");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

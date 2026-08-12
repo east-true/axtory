@@ -1,4 +1,5 @@
 import { canonicalJson, sha256, stableId } from "../../core/canonical-json.js";
+import { namedBranch, namedWorkspace } from "../../core/workspace.js";
 import type { NormalizedObservation } from "../../core/records.js";
 import { isoFromEpoch } from "../../core/time.js";
 import type { CodexThread, CodexThreadItem, CodexTurn } from "./types.js";
@@ -55,8 +56,7 @@ function spawnedParentThreadId(source: unknown): string | null {
  */
 function gitBranch(gitInfo: unknown): string | null {
   if (gitInfo === null || typeof gitInfo !== "object" || Array.isArray(gitInfo)) return null;
-  const branch = (gitInfo as Record<string, unknown>).branch;
-  return typeof branch === "string" && branch.length > 0 ? branch : null;
+  return namedBranch((gitInfo as Record<string, unknown>).branch);
 }
 
 function toolName(item: CodexThreadItem): string | null {
@@ -125,8 +125,8 @@ export function normalizeCodexThread(
       // are path- and name-bearing, so only their digests are kept. App Server reports an absolute,
       // already-normalized `cwd`, so the digest matches the one a report computes from a directory
       // the caller names, and the two sources group into the same workspace.
-      ...(typeof thread.cwd === "string" && thread.cwd.length > 0
-        ? { workspaceIdentity: sha256(thread.cwd) }
+      ...(namedWorkspace(thread.cwd)
+        ? { workspaceIdentity: sha256(namedWorkspace(thread.cwd)!) }
         : {}),
       ...(branch ? { branchIdentity: sha256(branch) } : {}),
     },
