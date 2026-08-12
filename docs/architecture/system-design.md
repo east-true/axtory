@@ -375,7 +375,6 @@ Contract Test로 검증한다.
 ### 미구현 또는 추가 Spike 필요
 
 - 실제 Provider가 연결된 Local/Remote Semantic Analyzer와 AnalysisUnit
-- OTLP gRPC/protobuf 및 beta trace 수신
 - App Server daemon이 live state를 읽을 때 `active`를 보고하는지 (수집기는 의도적으로 snapshot을
   읽으므로 결과와 무관하다)
 - Codex 0.147.0 초과 버전 호환성 (0.146.1은 하한 미만으로 확인)
@@ -385,6 +384,18 @@ Contract Test로 검증한다.
 
 Cursor Agent는 미구현이 아니라 Vendor가 비파괴 목록 경로를 제공하지 않는 경우다. Discovery가
 `NOT_SUPPORTED`로 보고한다.
+
+OTLP gRPC/protobuf와 trace 수신도 미구현이 아니다. AXtory는 자신이 수신할 endpoint의 exporter
+설정을 직접 쓰며 `http/json`을 지정하므로, gRPC 수신기는 아무도 보내지 않는 트래픽을 해석하게
+된다. Trace는 Claude Code가 내보내지 않는다. CLI 바이너리에 `OTEL_TRACES_EXPORTER`와 `/v1/traces`
+문자열이 있으나 이는 번들된 OpenTelemetry SDK의 상수이고, trace를 명시적으로 켠 통제 실행 두 번에서
+log 4건·metric 2건이 도착하는 동안 trace는 0건이었다(도구를 사용한 실행 포함). 의존성에 설정 키가
+있다는 것은 SDK가 무엇을 받아들이는지를 말할 뿐 제품이 무엇을 내보내는지를 말하지 않는다.
+
+더구나 trace가 실을 데이터도 없다. Span이 더하는 것은 지속시간과 부모/자식 구조인데, 캡처한 log
+레코드가 이미 `duration_ms`·`total_duration_ms`를 담고 `event.sequence`로 순서를,
+`session.id`·`prompt.id`·`request_id`·`tool_use_id`로 상관관계를 제공한다. Claude Code의 telemetry는
+event 형태이고 trace가 보고할 타이밍은 이미 그 event의 속성이다.
 
 재수집은 Normalizer 변경을 반영하지 못한다. 재사용 판단이 `(source_object_id,
 source_modified_at)`만 보고 normalizer 버전을 보지 않으며, 설령 재사용을 막아도 Revision id가
