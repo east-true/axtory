@@ -223,6 +223,14 @@ one `--workspace-dir` selects a directory's sessions from either source. The add
 do not record one, so they carry no workspace and a scoped report excludes them. OpenCode is the
 one that could: its session listing reports a `directory`, which AXtory does not currently read.
 
+`--branch` narrows the same way, hashing the branch name as a connector does. A branch name alone
+can exist in several repositories, so pair it with `--workspace-dir` to name one; unpaired, the
+workspace count in the report shows how many repositories the scope reached.
+
+A session reports the literal `HEAD` when nothing is checked out, and Claude reports it for a
+directory that is not a repository at all. That is recorded as no branch rather than as a branch
+named `HEAD`, so unrelated sessions in that state are not grouped together.
+
 The report also counts how many distinct workspaces and branches the selected sessions ran in.
 Revisions collected before this field existed carry no workspace: they are excluded from a scoped
 report and counted as `sessionsWithoutWorkspace` in an unscoped one, which marks that section

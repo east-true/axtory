@@ -222,6 +222,14 @@ Claude와 Codex 모두 작업공간을 기록하며 같은 절대 경로를 같�
 않아 범위를 지정한 리포트에서 제외됩니다. OpenCode는 session 목록에 `directory`를 보고하므로
 가능하지만 AXtory가 아직 읽지 않습니다.
 
+`--branch`도 같은 방식으로 범위를 좁히며, Connector와 동일하게 branch 이름을 해싱합니다. 같은
+branch 이름이 여러 저장소에 존재할 수 있으므로 하나를 지목하려면 `--workspace-dir`와 함께
+쓰십시오. 함께 쓰지 않으면 리포트의 작업공간 수가 그 범위가 몇 개 저장소에 걸쳤는지 보여줍니다.
+
+Checkout된 branch가 없으면 Session은 문자열 `HEAD`를 보고하며, 저장소가 아닌 디렉터리에 대해서도
+Claude가 같은 값을 보고합니다. 이는 `HEAD`라는 이름의 branch가 아니라 branch 없음으로 기록하므로,
+그 상태의 무관한 Session들이 하나로 묶이지 않습니다.
+
 리포트는 선택된 Session이 몇 개의 작업공간과 branch에 걸쳐 있는지도 셉니다. 이 필드가 생기기
 전에 수집된 Revision에는 작업공간이 없습니다. 범위를 지정한 리포트에서는 제외되고, 지정하지
 않은 리포트에서는 `sessionsWithoutWorkspace`로 세어 해당 항목을 `PARTIAL`로 표시합니다.

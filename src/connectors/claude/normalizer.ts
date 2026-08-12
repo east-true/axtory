@@ -1,6 +1,7 @@
 import { canonicalJson, sha256, stableId } from "../../core/canonical-json.js";
 import type { NormalizedObservation } from "../../core/records.js";
 import { isoFromEpoch, isoTimestamp } from "../../core/time.js";
+import { namedBranch, namedWorkspace } from "../../core/workspace.js";
 import type { ClaudeSessionInfo, ClaudeSessionMessage } from "./history-api.js";
 
 export const CLAUDE_NORMALIZER_VERSION = "claude-official-history/3";
@@ -54,11 +55,11 @@ export function normalizeClaudeSession(
       sourceModifiedAt: epochTimestamp(session.lastModified),
       // The workspace a session ran in. Both values are path- and name-bearing, so only their
       // digests are kept: they group and filter sessions without revealing where work happened.
-      ...(typeof session.cwd === "string" && session.cwd.length > 0
-        ? { workspaceIdentity: sha256(session.cwd) }
+      ...(namedWorkspace(session.cwd)
+        ? { workspaceIdentity: sha256(namedWorkspace(session.cwd)!) }
         : {}),
-      ...(typeof session.gitBranch === "string" && session.gitBranch.length > 0
-        ? { branchIdentity: sha256(session.gitBranch) }
+      ...(namedBranch(session.gitBranch)
+        ? { branchIdentity: sha256(namedBranch(session.gitBranch)!) }
         : {}),
     },
   });
