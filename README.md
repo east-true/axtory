@@ -218,10 +218,10 @@ node dist/src/cli.js report-usage \
   --source claude --workspace-dir .
 ```
 
-Claude and Codex both record the workspace, and both hash the same absolute path the same way, so
-one `--workspace-dir` selects a directory's sessions from either source. The additional AI sources
-do not record one, so they carry no workspace and a scoped report excludes them. OpenCode is the
-one that could: its session listing reports a `directory`, which AXtory does not currently read.
+Claude, Codex, and OpenCode all record the workspace, and all hash the same absolute path the same
+way, so one `--workspace-dir` selects a directory's sessions from any of them. OpenCode reports no
+branch, so its sessions count toward `sessionsWithoutBranch`. The remaining additional AI sources
+report no directory and carry no workspace, so a scoped report excludes them.
 
 The report also counts how many distinct workspaces and branches the selected sessions ran in.
 Revisions collected before this field existed carry no workspace: they are excluded from a scoped

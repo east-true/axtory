@@ -2,7 +2,7 @@ import { stableId } from "../../core/canonical-json.js";
 import type { NormalizedObservation } from "../../core/records.js";
 import type { AdditionalAiSessionView } from "./types.js";
 
-export const ADDITIONAL_AI_NORMALIZER_VERSION = "additional-ai-session/1";
+export const ADDITIONAL_AI_NORMALIZER_VERSION = "additional-ai-session/2";
 
 function projectionCoverage(view: AdditionalAiSessionView): "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_COMPACTION" | "PARTIAL_SOURCE_CHANGED" | "UNKNOWN" {
   if (view.coverage === "COMPLETE_FOR_RETURNED_VIEW") return "COMPLETE_FOR_RETURNED_VIEW";
@@ -38,6 +38,9 @@ export function normalizeAdditionalAiSession(
       additionalAiCoverage: view.coverage,
       messageCoverage: projectionCoverage(view),
       returnedMessageCount: view.messages.length,
+      ...(view.summary.workspaceIdentity
+        ? { workspaceIdentity: view.summary.workspaceIdentity }
+        : {}),
     },
   };
   const messages = view.messages.map((message, index): NormalizedObservation => {
