@@ -16,7 +16,7 @@ Codex, 업무 시스템, 추가 AI Source, Impact Analysis는 문서화된 후�
 | --- | --- | --- |
 | Local-first, observer, read-only default | 완료 | Core에 원격 호출·Agent 실행·Vendor 설정 변경 경로가 없다. |
 | Apache-2.0 및 Vendor 의존성 분리 | 완료 | `LICENSE`, `THIRD_PARTY_NOTICES.md`, SDK 없는 `npm ci` 검증 |
-| 제품·설계·단계 문서 | 완료 | `docs/planning`, `docs/architecture`, `docs/research` |
+| 제품·설계·단계 문서 | 완료 | `docs/internal`, `docs/design`, `docs/research` |
 | Claude 설치·버전·data root·auth Capability | 완료 | discovery 구현, 실제 WSL 설치 및 custom root 검증 |
 | 공식 API Session·Message·Tool 수집 | 완료 | 공식 SDK adapter와 bounded 실제 수집 성공 |
 | 내부 JSONL parser 금지 | 완료 | Source tree에 Vendor JSONL parser가 없다. |

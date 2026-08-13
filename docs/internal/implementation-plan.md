@@ -11,7 +11,7 @@ repository and does not modify that draft.
 
 **Goal:** freeze product boundary, trust model, licensing, dependency, and versioning rules.
 
-**Files:** root policy documents and `docs/architecture/foundation.md`.
+**Files:** root policy documents and `docs/design/foundation.md`.
 
 **Completion:** Core has no Vendor runtime dependency, defaults are offline/read-only, and the
 license boundary for the optional Claude SDK is explicit.
