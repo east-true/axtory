@@ -9,9 +9,9 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-7-3178C6.svg)](https://www.typescriptlang.org/)
 
-</div>
+<img src="docs/assets/demo.svg" alt="AXtory collecting a fixture session twice and producing a single revision" width="820">
 
-<!-- Terminal capture of `report-usage` goes here. -->
+</div>
 
 AXtory reads what your AI coding tools already record — Claude Code sessions, Codex
 threads, work-system activity — and turns them into a usage report you can actually check.
@@ -36,30 +36,9 @@ zero.
 - **Observed vs. inferred, always separated** — semantic rule matches and fork lineage are recorded as `INFERRED` and are never promoted to verified fact.
 - **Opt-in everything sensitive** — conversation-content analysis, live Hook/OTel collection, and Claude settings changes each require an explicit confirmation string.
 
-## Status
-
-AXtory is **pre-1.0 (v0.1.0-dev.0)** and under active development. It is not published to
-npm — building from source is currently the only way to run it. The CLI surface, the
-on-disk schema, and the report JSON may still change between versions.
-
-## Sources
-
-| Source                                   | Read through                                | Message/tool facts                 |
-| ---------------------------------------- | ------------------------------------------- | ---------------------------------- |
-| Claude Code                              | Official Agent SDK                          | Available                          |
-| Codex                                    | Official App Server (`thread/list`, `thread/read`) | Available                   |
-| OpenCode                                 | JSON session list and export                | Available for the returned export  |
-| Kimi Code                                | Documented session store, `wire.jsonl`      | Available for documented events    |
-| Gemini CLI                               | Session list                                | `NOT_COLLECTED`; metadata only     |
-| Cursor Agent                             | No non-interactive listing                  | `NOT_SUPPORTED`                    |
-| Aider                                    | Explicit chat-history Markdown              | `NOT_SUPPORTED`; raw log only      |
-| GitHub, GitLab, Jira, Linear             | Official HTTPS APIs                         | Metadata allowlist only            |
-| Local Git                                | Local repository                            | No paths, diffs, messages, or authors |
-| Claude Hook / OTel                       | Opt-in loopback receiver                    | Token, model, cost, latency        |
-
 ## Quick start
 
-Requires **Node.js 24 or later**.
+Requires **Node.js 24 or later**. AXtory is not published to npm yet, so build from source:
 
 ```sh
 npm install
@@ -95,6 +74,27 @@ user-only permissions. **Do not publish a `.local` data directory.**
 
 Every other collector, report flag, and deletion mode is documented in the
 [CLI reference](docs/cli.md).
+
+## Status
+
+AXtory is **pre-1.0 (v0.1.0-dev.0)** and under active development. There are no prebuilt
+binaries yet — building from source is the only way to run it. The CLI surface, the on-disk
+schema, and the report JSON may still change between versions.
+
+## Sources
+
+| Source                                   | Read through                                | Message/tool facts                 |
+| ---------------------------------------- | ------------------------------------------- | ---------------------------------- |
+| Claude Code                              | Official Agent SDK                          | Available                          |
+| Codex                                    | Official App Server (`thread/list`, `thread/read`) | Available                   |
+| OpenCode                                 | JSON session list and export                | Available for the returned export  |
+| Kimi Code                                | Documented session store, `wire.jsonl`      | Available for documented events    |
+| Gemini CLI                               | Session list                                | `NOT_COLLECTED`; metadata only     |
+| Cursor Agent                             | No non-interactive listing                  | `NOT_SUPPORTED`                    |
+| Aider                                    | Explicit chat-history Markdown              | `NOT_SUPPORTED`; raw log only      |
+| GitHub, GitLab, Jira, Linear             | Official HTTPS APIs                         | Metadata allowlist only            |
+| Local Git                                | Local repository                            | No paths, diffs, messages, or authors |
+| Claude Hook / OTel                       | Opt-in loopback receiver                    | Token, model, cost, latency        |
 
 ## How it works
 
