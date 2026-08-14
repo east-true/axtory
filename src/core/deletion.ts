@@ -195,13 +195,19 @@ export async function applyRetention(options: {
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
   const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
   try {
-    database.saveCollectionPolicy(options.policy, now().toISOString());
-    const cutoffs = new Map<DataClassification, string>();
-    const eligible = Object.entries(options.policy.classifications).flatMap(([classification, rule]) => {
-      if (rule.retentionDays === null) return [];
-      if (!Number.isInteger(rule.retentionDays) || rule.retentionDays < 0) {
+    const classifications = Object.entries(options.policy.classifications);
+    // Reject an invalid policy before persisting it. A failed retention invocation must not leave
+    // behind a policy version that was never valid enough to execute.
+    for (const [classification, rule] of classifications) {
+      if (rule.retentionDays !== null &&
+        (!Number.isInteger(rule.retentionDays) || rule.retentionDays < 0)) {
         throw new Error(`invalid retention days for ${classification}`);
       }
+    }
+    database.saveCollectionPolicy(options.policy, now().toISOString());
+    const cutoffs = new Map<DataClassification, string>();
+    const eligible = classifications.flatMap(([classification, rule]) => {
+      if (rule.retentionDays === null) return [];
       const cutoff = new Date(now().getTime() - rule.retentionDays * 86_400_000).toISOString();
       cutoffs.set(classification as DataClassification, cutoff);
       return database.rawObservationsEligibleForRetention(classification as DataClassification, cutoff);
