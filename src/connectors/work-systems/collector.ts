@@ -9,6 +9,7 @@ import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import type { AnalysisRecord } from "../../core/records.js";
+import { persistCollectedRevision } from "../../core/revision-persistence.js";
 import { AxtoryDatabase } from "../../core/storage.js";
 import { projectWorkArtifact, type WorkArtifactProjection } from "../../projections/work-artifact.js";
 import { WORK_SYSTEM_NORMALIZER_VERSION, normalizeWorkArtifact } from "./normalizer.js";
@@ -35,18 +36,10 @@ export interface WorkSystemCollectionOutput {
     byKind: Readonly<Record<WorkArtifactKind, number | null>>;
     byStatus: Readonly<Record<WorkStatusCategory, number>>;
   };
-  repositoryLinks: {
-    matched: number;
-    derivation: "OBSERVED";
-  };
+  repositoryLinks: { matched: number; derivation: "OBSERVED" };
   metrics: readonly {
-    key: string;
-    value: unknown;
-    unit: string | null;
-    derivation: AnalysisRecord["derivation"];
-    availability: string;
-    reason: string | null;
-    evidenceCount: number;
+    key: string; value: unknown; unit: string | null; derivation: AnalysisRecord["derivation"];
+    availability: string; reason: string | null; evidenceCount: number;
     evidenceStatus: AnalysisRecord["evidenceStatus"];
   }[];
   limitations: readonly string[];
@@ -56,13 +49,8 @@ export async function collectWorkSystem(
   api: WorkSystemApi,
   discovery: WorkSystemDiscovery,
   options: {
-    dataDirectory: string;
-    jsonOutputPath: string;
-    pageSize?: number;
-    maxPages?: number;
-    now?: () => Date;
-    randomId?: () => string;
-    gitRevisionId?: string;
+    dataDirectory: string; jsonOutputPath: string; pageSize?: number; maxPages?: number;
+    now?: () => Date; randomId?: () => string; gitRevisionId?: string;
   },
 ): Promise<WorkSystemCollectionOutput> {
   if (api.provider !== discovery.provider || api.scopeIdentity !== discovery.scopeIdentity) {
@@ -93,11 +81,7 @@ export async function collectWorkSystem(
       const sourceObjectId = stableId("source", {
         sourceType, scopeIdentity: api.scopeIdentity, kind: artifact.kind, externalId: artifact.externalId,
       });
-      database.upsertSourceObject(
-        sourceObjectId,
-        sourceType,
-        `${api.scopeIdentity}:${artifact.kind}:${artifact.externalId}`,
-      );
+      const externalKey = `${api.scopeIdentity}:${artifact.kind}:${artifact.externalId}`;
       const unchangedRevisionId = artifact.sourceUpdatedAt
         ? database.findRevisionBySourceModifiedAt(sourceObjectId, artifact.sourceUpdatedAt)
         : null;
@@ -110,11 +94,8 @@ export async function collectWorkSystem(
         continue;
       }
       const bytes = new TextEncoder().encode(canonicalJson({
-        schemaVersion: "axtory.work-system-source-view.v1",
-        provider: artifact.provider,
-        scopeIdentity: artifact.scopeIdentity,
-        kind: artifact.kind,
-        artifact: artifact.sourceView,
+        schemaVersion: "axtory.work-system-source-view.v1", provider: artifact.provider,
+        scopeIdentity: artifact.scopeIdentity, kind: artifact.kind, artifact: artifact.sourceView,
       }));
       if (bytes.byteLength > RAW_ARTIFACT_LIMIT_BYTES) {
         throw new Error("a work-system artifact exceeds the 2 MiB per-revision limit");
@@ -124,44 +105,38 @@ export async function collectWorkSystem(
       }
       const blob = await blobs.put(bytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-      const created = database.insertRevision({
-        id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: timestamp(),
-        sourceModifiedAt: artifact.sourceUpdatedAt,
-        normalizerVersion: WORK_SYSTEM_NORMALIZER_VERSION,
-        payloadReference: blob.relativePath,
+      const persistedAt = timestamp();
+      const { created } = persistCollectedRevision(database, {
+        collectionRunId,
+        sourceObject: { id: sourceObjectId, sourceType, externalKey },
+        revision: {
+          id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+          sourceModifiedAt: artifact.sourceUpdatedAt, normalizerVersion: WORK_SYSTEM_NORMALIZER_VERSION,
+          payloadReference: blob.relativePath,
+        },
+        rawObservation: {
+          id: stableId("raw", { revisionId, type: "WORK_SYSTEM_VIEW" }), sourceRevisionId: revisionId,
+          observationType: "WORK_SYSTEM_VIEW", provenance: "EXTERNAL_API",
+          dataClassification: "LOCAL_METADATA", payloadReference: blob.relativePath,
+          observedAt: persistedAt, sourceModifiedAt: artifact.sourceUpdatedAt,
+        },
+        observations: normalizeWorkArtifact(artifact, revisionId),
+        observedAt: persistedAt,
       });
       if (created) revisionsCreated += 1;
       else revisionsUnchanged += 1;
-      database.transaction(() => {
-        database.insertRawObservation({
-          id: stableId("raw", { revisionId, type: "WORK_SYSTEM_VIEW" }),
-          sourceRevisionId: revisionId,
-          observationType: "WORK_SYSTEM_VIEW",
-          provenance: "EXTERNAL_API",
-          dataClassification: "LOCAL_METADATA",
-          payloadReference: blob.relativePath,
-          observedAt: timestamp(),
-          sourceModifiedAt: artifact.sourceUpdatedAt,
-        });
-        database.insertObservations(normalizeWorkArtifact(artifact, revisionId));
-        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
-      });
       projections.push(projectWorkArtifact(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);
     }
-    const gitObservations = options.gitRevisionId
-      ? database.observationsForRevision(options.gitRevisionId)
-      : [];
+    const gitObservations = options.gitRevisionId ? database.observationsForRevision(options.gitRevisionId) : [];
     if (options.gitRevisionId && gitObservations.length === 0) {
       throw new Error("Local Git revision for work-system correlation does not exist");
     }
     const analysisRunId = `analysis_${randomId()}`;
     database.startAnalysisRun({
-      id: analysisRunId,
-      analyzerType: "WORK_FACT_ANALYZER",
+      id: analysisRunId, analyzerType: "WORK_FACT_ANALYZER",
       analyzerVersion: options.gitRevisionId
-        ? `${WORK_FACT_ANALYZER_VERSION}+${WORK_GIT_CORRELATION_VERSION}`
-        : WORK_FACT_ANALYZER_VERSION,
+        ? `${WORK_FACT_ANALYZER_VERSION}+${WORK_GIT_CORRELATION_VERSION}` : WORK_FACT_ANALYZER_VERSION,
       inputRevisionIds: options.gitRevisionId ? [...revisionIds, options.gitRevisionId] : revisionIds,
       startedAt: timestamp(),
     });
@@ -173,8 +148,7 @@ export async function collectWorkSystem(
     ).map((record) => ({
       ...record,
       evidenceStatus: record.evidenceIds.some((id) => removedEvidence.has(id))
-        ? "EVIDENCE_REMOVED" as const
-        : record.evidenceStatus,
+        ? "EVIDENCE_REMOVED" as const : record.evidenceStatus,
     }));
     const workObservations = revisionIds.flatMap((revisionId) => database.observationsForRevision(revisionId));
     const correlationRecords = correlateWorkWithGit(analysisRunId, workObservations, gitObservations);
@@ -182,22 +156,16 @@ export async function collectWorkSystem(
     database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
     const byKind = Object.fromEntries((["CHANGE_REQUEST", "CI_RUN", "DEPLOYMENT", "WORK_ITEM"] as const)
       .map((kind) => [kind, api.supportedKinds.includes(kind)
-        ? projections.filter((item) => item.artifactKind === kind).length
-        : null])) as Record<WorkArtifactKind, number | null>;
+        ? projections.filter((item) => item.artifactKind === kind).length : null])) as Record<WorkArtifactKind, number | null>;
     const statuses = ["OPEN", "MERGED", "CLOSED", "IN_PROGRESS", "SUCCEEDED", "FAILED", "CANCELED",
       "COMPLETED", "BACKLOG", "UNKNOWN"] as const;
     const byStatus = Object.fromEntries(statuses.map((status) => [
       status, projections.filter((item) => item.statusCategory === status).length,
     ])) as Record<WorkStatusCategory, number>;
     const output: WorkSystemCollectionOutput = {
-      schemaVersion: "axtory.work-system-collection-output.v1",
-      collectionRunId,
-      provider: api.provider,
-      coverage: enumeration.coverage,
-      authentication: discovery.authentication,
-      artifacts: {
-        returned: projections.length, revisionsCreated, revisionsUnchanged, byKind, byStatus,
-      },
+      schemaVersion: "axtory.work-system-collection-output.v1", collectionRunId, provider: api.provider,
+      coverage: enumeration.coverage, authentication: discovery.authentication,
+      artifacts: { returned: projections.length, revisionsCreated, revisionsUnchanged, byKind, byStatus },
       repositoryLinks: { matched: correlationRecords.length, derivation: "OBSERVED" },
       metrics: metricRecords.map((item) => ({
         key: item.key, value: item.value, unit: item.unit, derivation: item.derivation,
@@ -230,10 +198,8 @@ export async function collectWorkSystem(
 
 export function renderWorkSystemCollection(output: WorkSystemCollectionOutput): string {
   const lines = [
-    `AXtory ${output.provider} work-system evidence`,
-    `Coverage: ${output.coverage}`,
-    `Artifacts returned: ${output.artifacts.returned}`,
-    `Revisions created: ${output.artifacts.revisionsCreated}`,
+    `AXtory ${output.provider} work-system evidence`, `Coverage: ${output.coverage}`,
+    `Artifacts returned: ${output.artifacts.returned}`, `Revisions created: ${output.artifacts.revisionsCreated}`,
     `Revisions unchanged: ${output.artifacts.revisionsUnchanged}`,
   ];
   for (const metric of output.metrics) {

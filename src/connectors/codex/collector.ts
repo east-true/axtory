@@ -8,6 +8,7 @@ import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import type { Derivation } from "../../core/records.js";
+import { persistCollectedRevision } from "../../core/revision-persistence.js";
 import { AxtoryDatabase } from "../../core/storage.js";
 import { projectSession, type SessionProjection } from "../../projections/session.js";
 import type { CodexDiscovery } from "./discovery.js";
@@ -51,9 +52,7 @@ export interface CodexCollectionOutput {
     unsettledTurnViews: number;
     compactedViews: number;
     partialItemViews: number;
-    /** Threads the App Server refused to return, so they contributed no view at all. */
     unreadableThreads: number;
-    /** Distinct Vendor reasons for those refusals, bounded and content-free. */
     unreadableReasons: readonly string[];
   };
   metrics: readonly {
@@ -83,9 +82,6 @@ function viewCoverage(listed: CodexThread, detail: CodexThread): CodexMessageCov
   if (listed.status?.type === "active" || detail.status?.type === "active" || listed.updatedAt !== detail.updatedAt) {
     return "PARTIAL_SOURCE_CHANGED";
   }
-  // A turn without a completion time never settled, whether it was interrupted or was still running
-  // when the snapshot was taken. Both leave a view that is not a finished turn, and the isolated
-  // read cannot tell them apart, so the view is reported partial rather than complete.
   if (detail.turns.some((turn) => turn.completedAt === null)) return "PARTIAL_UNSETTLED_TURN";
   if (detail.turns.some((turn) => turn.items.some((item) => item.type === "contextCompaction"))) {
     return "PARTIAL_COMPACTION";
@@ -129,15 +125,12 @@ export async function collectCodexHistory(
     for (const summary of listed.items) {
       const sourceObjectId = stableId("source", { sourceType: "CODEX", threadId: summary.id });
       const sourceModifiedAt = epochSeconds(summary.updatedAt);
-      database.upsertSourceObject(sourceObjectId, "CODEX", summary.id);
       const active = summary.status?.type === "active";
       const unchangedRevisionId = !active && sourceModifiedAt
         ? database.findRevisionBySourceModifiedAt(sourceObjectId, sourceModifiedAt)
         : null;
       if (unchangedRevisionId) {
-        if (!database.rawObservationForRevision(unchangedRevisionId)) {
-          revisionsWithoutRawEvidence.add(unchangedRevisionId);
-        }
+        if (!database.rawObservationForRevision(unchangedRevisionId)) revisionsWithoutRawEvidence.add(unchangedRevisionId);
         const projection = projectSession(database.observationsForRevision(unchangedRevisionId));
         projections.push(projection);
         if (projection.messageCoverage === "PARTIAL_COMPACTION") compactedViews += 1;
@@ -149,9 +142,6 @@ export async function collectCodexHistory(
         revisionsUnchanged += 1;
         continue;
       }
-      // A refusal of this one thread is recorded and stepped over; anything else means the channel
-      // is unhealthy and still aborts, because continuing would keep questioning a server that can
-      // no longer answer and report the silence as a result.
       let detail: CodexThread;
       try {
         detail = await api.readThread(summary.id);
@@ -179,31 +169,27 @@ export async function collectCodexHistory(
       }
       const blob = await blobs.put(rawBytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-      const created = database.insertRevision({
-        id: revisionId,
-        sourceObjectId,
-        contentHash: blob.digest,
-        collectedAt: timestamp(),
-        sourceModifiedAt: epochSeconds(detail.updatedAt),
-        normalizerVersion: CODEX_NORMALIZER_VERSION,
-        payloadReference: blob.relativePath,
+      const persistedAt = timestamp();
+      const detailModifiedAt = epochSeconds(detail.updatedAt);
+      const { created } = persistCollectedRevision(database, {
+        collectionRunId,
+        sourceObject: { id: sourceObjectId, sourceType: "CODEX", externalKey: summary.id },
+        revision: {
+          id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+          sourceModifiedAt: detailModifiedAt, normalizerVersion: CODEX_NORMALIZER_VERSION,
+          payloadReference: blob.relativePath,
+        },
+        rawObservation: {
+          id: stableId("raw", { revisionId, type: "CODEX_THREAD_VIEW" }), sourceRevisionId: revisionId,
+          observationType: "CODEX_THREAD_VIEW", provenance: "OFFICIAL_API",
+          dataClassification: "CONVERSATION_CONTENT", payloadReference: blob.relativePath,
+          observedAt: persistedAt, sourceModifiedAt: detailModifiedAt,
+        },
+        observations: normalizeCodexThread(detail, revisionId, coverage),
+        observedAt: persistedAt,
       });
       if (created) revisionsCreated += 1;
       else revisionsUnchanged += 1;
-      database.transaction(() => {
-        database.insertRawObservation({
-          id: stableId("raw", { revisionId, type: "CODEX_THREAD_VIEW" }),
-          sourceRevisionId: revisionId,
-          observationType: "CODEX_THREAD_VIEW",
-          provenance: "OFFICIAL_API",
-          dataClassification: "CONVERSATION_CONTENT",
-          payloadReference: blob.relativePath,
-          observedAt: timestamp(),
-          sourceModifiedAt: epochSeconds(detail.updatedAt),
-        });
-        database.insertObservations(normalizeCodexThread(detail, revisionId, coverage));
-        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
-      });
       projections.push(projectSession(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);
     }
@@ -226,8 +212,6 @@ export async function collectCodexHistory(
     }));
     database.transaction(() => database.insertAnalysisRecords(records));
     database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
-    // An unreadable thread ranks first: every other partial state still returned a view, while this
-    // one contributed nothing at all, so it is the most important thing about the run.
     const coverage = unreadableThreads > 0
       ? "PARTIAL_UNREADABLE_THREAD"
       : listed.coverage !== "COMPLETE_FOR_RETURNED_VIEW"
@@ -253,25 +237,14 @@ export async function collectCodexHistory(
         login: capability(discovery, "codex.login"),
       },
       threads: {
-        returned: listed.items.length,
-        revisionsCreated,
-        revisionsUnchanged,
-        activeViews,
-        unsettledTurnViews,
-        compactedViews,
-        partialItemViews,
-        unreadableThreads,
+        returned: listed.items.length, revisionsCreated, revisionsUnchanged, activeViews,
+        unsettledTurnViews, compactedViews, partialItemViews, unreadableThreads,
         unreadableReasons: [...unreadableReasons],
       },
       metrics: records.map((item) => ({
-        key: item.key,
-        value: item.value,
-        unit: item.unit,
-        derivation: item.derivation,
-        availability: item.availability,
-        reason: item.reason,
-        evidenceCount: item.evidenceIds.length,
-        evidenceStatus: item.evidenceStatus,
+        key: item.key, value: item.value, unit: item.unit, derivation: item.derivation,
+        availability: item.availability, reason: item.reason,
+        evidenceCount: item.evidenceIds.length, evidenceStatus: item.evidenceStatus,
       })),
       limitations: [
         "Counts describe official App Server returned views, not completed work items.",
@@ -285,15 +258,9 @@ export async function collectCodexHistory(
     };
     const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, output);
     database.recordExport({
-      id: `export_${randomId()}`,
-      sink: "JSON_FILE",
-      destination: options.jsonOutputPath,
-      policyVersion: OUTPUT_POLICY_VERSION,
-      recordCount: output.metrics.length,
-      classifications: ["PUBLIC_METADATA"],
-      status: "COMPLETED",
-      payloadDigest,
-      exportedAt: timestamp(),
+      id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
+      policyVersion: OUTPUT_POLICY_VERSION, recordCount: output.metrics.length,
+      classifications: ["PUBLIC_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: timestamp(),
     });
     database.finishCollectionRun(collectionRunId, "COMPLETED", timestamp());
     return output;

@@ -14,6 +14,7 @@ import { stableId } from "./canonical-json.js";
 import { ensureAxtoryDataDirectory } from "./data-directory.js";
 import { applyOutputPolicy, OUTPUT_POLICY_VERSION, type SkeletonOutput, writeJsonAtomically } from "./output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "./policy.js";
+import { persistCollectedRevision } from "./revision-persistence.js";
 import { AxtoryDatabase } from "./storage.js";
 import { isoTimestamp } from "./time.js";
 
@@ -52,29 +53,22 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
     const blob = await new ContentAddressedBlobStore(join(dataDirectory, "blobs")).put(bytes);
     const sourceObjectId = stableId("source", { sourceType: "FIXTURE", key: fixture.sourceObjectKey });
     const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-    database.upsertSourceObject(sourceObjectId, "FIXTURE", fixture.sourceObjectKey);
-    const revisionCreated = database.insertRevision({
-      id: revisionId,
-      sourceObjectId,
-      contentHash: blob.digest,
-      collectedAt: timestamp(),
-      sourceModifiedAt,
-      normalizerVersion: FIXTURE_NORMALIZER_VERSION,
-      payloadReference: blob.relativePath,
-    });
-    database.transaction(() => {
-      database.insertRawObservation({
-        id: stableId("raw", { revisionId, type: "FIXTURE_DOCUMENT" }),
-        sourceRevisionId: revisionId,
-        observationType: "FIXTURE_DOCUMENT",
-        provenance: "LOCAL_FILE",
-        dataClassification: "CONVERSATION_CONTENT",
-        payloadReference: blob.relativePath,
-        observedAt: timestamp(),
-        sourceModifiedAt,
-      });
-      database.insertObservations(normalizeClaudeHistoryFixture(fixture, revisionId));
-      database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
+    const persistedAt = timestamp();
+    const { created: revisionCreated } = persistCollectedRevision(database, {
+      collectionRunId,
+      sourceObject: { id: sourceObjectId, sourceType: "FIXTURE", externalKey: fixture.sourceObjectKey },
+      revision: {
+        id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+        sourceModifiedAt, normalizerVersion: FIXTURE_NORMALIZER_VERSION, payloadReference: blob.relativePath,
+      },
+      rawObservation: {
+        id: stableId("raw", { revisionId, type: "FIXTURE_DOCUMENT" }), sourceRevisionId: revisionId,
+        observationType: "FIXTURE_DOCUMENT", provenance: "LOCAL_FILE",
+        dataClassification: "CONVERSATION_CONTENT", payloadReference: blob.relativePath,
+        observedAt: persistedAt, sourceModifiedAt,
+      },
+      observations: normalizeClaudeHistoryFixture(fixture, revisionId),
+      observedAt: persistedAt,
     });
     const observations = database.observationsForRevision(revisionId);
     const sessionProjection = projectSession(observations);

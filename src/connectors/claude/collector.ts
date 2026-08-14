@@ -7,6 +7,7 @@ import { canonicalJson, stableId } from "../../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
+import { persistCollectedRevision } from "../../core/revision-persistence.js";
 import { AxtoryDatabase } from "../../core/storage.js";
 import type { Derivation } from "../../core/records.js";
 import { projectSession, type SessionProjection } from "../../projections/session.js";
@@ -100,7 +101,6 @@ export async function collectClaudeHistory(
     for (const session of sessions.items) {
       const sourceObjectId = stableId("source", { sourceType: "CLAUDE_CODE", sessionId: session.sessionId });
       const sourceModifiedAt = validEpoch(session.lastModified);
-      database.upsertSourceObject(sourceObjectId, "CLAUDE_CODE", session.sessionId);
       const unchangedRevisionId = sourceModifiedAt
         ? database.findRevisionBySourceModifiedAt(sourceObjectId, sourceModifiedAt)
         : null;
@@ -143,36 +143,25 @@ export async function collectClaudeHistory(
       }
       const blob = await blobs.put(rawBytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-      const created = database.insertRevision({
-        id: revisionId,
-        sourceObjectId,
-        contentHash: blob.digest,
-        collectedAt: timestamp(),
-        sourceModifiedAt,
-        normalizerVersion: CLAUDE_NORMALIZER_VERSION,
-        payloadReference: blob.relativePath,
+      const persistedAt = timestamp();
+      const { created } = persistCollectedRevision(database, {
+        collectionRunId,
+        sourceObject: { id: sourceObjectId, sourceType: "CLAUDE_CODE", externalKey: session.sessionId },
+        revision: {
+          id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+          sourceModifiedAt, normalizerVersion: CLAUDE_NORMALIZER_VERSION, payloadReference: blob.relativePath,
+        },
+        rawObservation: {
+          id: stableId("raw", { revisionId, type: "VENDOR_SESSION_VIEW" }),
+          sourceRevisionId: revisionId, observationType: "VENDOR_SESSION_VIEW", provenance: "OFFICIAL_API",
+          dataClassification: "CONVERSATION_CONTENT", payloadReference: blob.relativePath,
+          observedAt: persistedAt, sourceModifiedAt,
+        },
+        observations: normalizeClaudeSession(session, messages.items, revisionId, messageCoverage),
+        observedAt: persistedAt,
       });
       if (created) revisionsCreated += 1;
       else revisionsUnchanged += 1;
-      database.transaction(() => {
-        database.insertRawObservation({
-          id: stableId("raw", { revisionId, type: "VENDOR_SESSION_VIEW" }),
-          sourceRevisionId: revisionId,
-          observationType: "VENDOR_SESSION_VIEW",
-          provenance: "OFFICIAL_API",
-          dataClassification: "CONVERSATION_CONTENT",
-          payloadReference: blob.relativePath,
-          observedAt: timestamp(),
-          sourceModifiedAt,
-        });
-        database.insertObservations(normalizeClaudeSession(
-          session,
-          messages.items,
-          revisionId,
-          messageCoverage,
-        ));
-        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
-      });
       const projection = projectSession(database.observationsForRevision(revisionId));
       projections.push(projection);
       if (projection.messageCoverage !== "COMPLETE_FOR_RETURNED_VIEW") partialMessageViews += 1;
