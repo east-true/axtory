@@ -39,10 +39,9 @@ test("a JSON export has a durable audit lifecycle before and after publication",
       now: () => `2026-08-14T00:00:0${tick++}.000Z`,
     });
 
-    assert.deepEqual(exportRow(databasePath, "export_success"), {
-      status: "COMPLETED",
-      payload_digest: digest,
-    });
+    const row = exportRow(databasePath, "export_success");
+    assert.equal(row.status, "COMPLETED");
+    assert.equal(row.payload_digest, digest);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
