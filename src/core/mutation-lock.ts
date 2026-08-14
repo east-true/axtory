@@ -77,35 +77,49 @@ async function recoverStaleLock(lockDirectory: string): Promise<boolean> {
   return true;
 }
 
+function lockAlreadyExists(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EEXIST" || code === "ENOTEMPTY";
+}
+
+async function publishLock(root: string, lockDirectory: string, value: LockOwner): Promise<boolean> {
+  // Build the complete lease metadata under a unique sibling and publish it with one directory rename.
+  // Other processes therefore never observe a normally acquired lock without its owner record, and a
+  // failed contender can clean up only its private temporary directory rather than the current lease.
+  const temporaryDirectory = join(root, `${LOCK_DIRECTORY}.pending.${process.pid}.${value.token}`);
+  await mkdir(temporaryDirectory, { mode: 0o700 });
+  try {
+    await writeFile(join(temporaryDirectory, OWNER_FILE), `${JSON.stringify(value)}\n`, {
+      flag: "wx", mode: 0o600,
+    });
+    try {
+      await rename(temporaryDirectory, lockDirectory);
+      return true;
+    } catch (error) {
+      if (lockAlreadyExists(error)) return false;
+      throw error;
+    }
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 async function acquire(dataDirectory: string, waitMs: number): Promise<{ lockDirectory: string; token: string }> {
   const root = resolve(dataDirectory);
   const lockDirectory = join(root, LOCK_DIRECTORY);
   const deadline = Date.now() + waitMs;
   for (;;) {
     const token = randomUUID();
-    try {
-      await mkdir(lockDirectory, { mode: 0o700 });
-      const value: LockOwner = {
-        schemaVersion: "axtory.mutation-lock.v1",
-        pid: process.pid,
-        token,
-        createdAt: new Date().toISOString(),
-      };
-      try {
-        await writeFile(join(lockDirectory, OWNER_FILE), `${JSON.stringify(value)}\n`, {
-          flag: "wx", mode: 0o600,
-        });
-      } catch (error) {
-        await rm(lockDirectory, { recursive: true, force: true });
-        throw error;
-      }
-      return { lockDirectory, token };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (await recoverStaleLock(lockDirectory)) continue;
-      if (Date.now() >= deadline) throw new Error("AXtory data directory is busy with another mutation");
-      await sleep(RETRY_MS);
-    }
+    const value: LockOwner = {
+      schemaVersion: "axtory.mutation-lock.v1",
+      pid: process.pid,
+      token,
+      createdAt: new Date().toISOString(),
+    };
+    if (await publishLock(root, lockDirectory, value)) return { lockDirectory, token };
+    if (await recoverStaleLock(lockDirectory)) continue;
+    if (Date.now() >= deadline) throw new Error("AXtory data directory is busy with another mutation");
+    await sleep(RETRY_MS);
   }
 }
 
