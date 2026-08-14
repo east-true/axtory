@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,6 +13,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    server.close((error) => error ? reject(error) : resolvePromise());
+  });
+}
+
 test("a mutation lease is re-entrant only inside the acquiring async call tree", async () => {
   const directory = await mkdtemp(join(tmpdir(), "axtory-mutation-reentrant-"));
   try {
@@ -21,6 +28,40 @@ test("a mutation lease is re-entrant only inside the acquiring async call tree",
     }, 50);
     assert.equal(nested, true);
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an HTTP callback created under a live lease can re-enter that lease", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-mutation-http-reentrant-"));
+  let server: Server | null = null;
+  try {
+    await withDataMutationLock(directory, async () => {
+      server = createServer((_request, response) => {
+        void withDataMutationLock(directory, () => {
+          response.writeHead(204);
+          response.end();
+        }, 100).catch((error: unknown) => {
+          response.writeHead(500);
+          response.end(error instanceof Error ? error.message : "unknown");
+        });
+      });
+      await new Promise<void>((resolvePromise, reject) => {
+        server!.once("error", reject);
+        server!.listen(0, "127.0.0.1", () => {
+          server!.off("error", reject);
+          resolvePromise();
+        });
+      });
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const response = await fetch(`http://127.0.0.1:${address.port}/`);
+      assert.equal(response.status, 204);
+      await closeServer(server);
+      server = null;
+    }, 100);
+  } finally {
+    if (server) await closeServer(server);
     await rm(directory, { recursive: true, force: true });
   }
 });
