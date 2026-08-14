@@ -1,14 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 
 import { ensureAxtoryDataDirectory } from "../../src/core/data-directory.js";
-import {
-  stageDeletionFiles,
-} from "../../src/core/deletion-staging.js";
+import { stageDeletionFiles } from "../../src/core/deletion-staging.js";
 import { executeSelectiveDeletion } from "../../src/core/deletion.js";
 import { runWalkingSkeleton } from "../../src/core/pipeline.js";
 import { AxtoryDatabase } from "../../src/core/storage.js";
@@ -63,12 +61,9 @@ test("an interrupted uncommitted staging is restored when the data directory ope
   const directory = await mkdtemp(join(tmpdir(), "axtory-stage-rollback-"));
   try {
     await ensureAxtoryDataDirectory(directory);
+    await mkdir(join(directory, "spool"), { recursive: true });
     const original = join(directory, "spool", "synthetic.json");
-    await writeFile(original, "sensitive\n", { recursive: false } as never).catch(async () => {
-      const { mkdir } = await import("node:fs/promises");
-      await mkdir(join(directory, "spool"), { recursive: true });
-      await writeFile(original, "sensitive\n");
-    });
+    await writeFile(original, "sensitive\n");
     await stageDeletionFiles({
       dataDirectory: directory,
       deletionId: "deletion_uncommitted",
@@ -95,7 +90,6 @@ test("committed staging is finalized instead of restored after interruption", as
   const directory = await mkdtemp(join(tmpdir(), "axtory-stage-commit-"));
   try {
     await ensureAxtoryDataDirectory(directory);
-    const { mkdir } = await import("node:fs/promises");
     await mkdir(join(directory, "blobs"), { recursive: true });
     const original = join(directory, "blobs", "sensitive.bin");
     await writeFile(original, "sensitive");
