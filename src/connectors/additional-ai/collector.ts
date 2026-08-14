@@ -134,7 +134,8 @@ export async function collectAdditionalAiSource(
       const blob = await blobs.put(rawBytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
       const persistedAt = timestamp();
-      const { created } = persistCollectedRevision(database, {
+      const { created } = await persistCollectedRevision(database, {
+        dataDirectory,
         collectionRunId,
         sourceObject: { id: sourceObjectId, sourceType, externalKey },
         revision: {
