@@ -5,6 +5,11 @@ import { CLAUDE_NORMALIZER_VERSION, normalizeClaudeSession } from "../connectors
 import { CODEX_NORMALIZER_VERSION, normalizeCodexThread } from "../connectors/codex/normalizer.js";
 import type { CodexMessageCoverage } from "../connectors/codex/normalizer.js";
 import type { CodexThread } from "../connectors/codex/types.js";
+import { ContentAddressedBlobStore } from "./blob-store.js";
+import { ensureAxtoryDataDirectory } from "./data-directory.js";
+import { replaceDerivedEvidenceAtomically } from "./derived-storage.js";
+import type { NormalizedObservation } from "./records.js";
+import { AxtoryDatabase } from "./storage.js";
 
 type ClaudeCoverage = "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION" | "PARTIAL_SOURCE_CHANGED";
 
@@ -15,21 +20,9 @@ const CODEX_COVERAGES: readonly CodexMessageCoverage[] = [
   "COMPLETE_FOR_RETURNED_VIEW", "PARTIAL_PAGINATION", "PARTIAL_COMPACTION",
   "PARTIAL_SOURCE_CHANGED", "PARTIAL_UNSETTLED_TURN",
 ];
-import { ContentAddressedBlobStore } from "./blob-store.js";
-import { ensureAxtoryDataDirectory } from "./data-directory.js";
-import type { NormalizedObservation } from "./records.js";
-import { AxtoryDatabase } from "./storage.js";
 
 const RAW_LIMIT_BYTES = 64 * 1024 * 1024;
 
-/**
- * Re-normalization recomputes derived observations in place; it does not mint a revision.
- *
- * A SourceRevision is identified by the content hash of the raw view, so it stands for a state of
- * the source. The source did not change when the normalizer did, and minting a revision would both
- * claim otherwise and collide with the uniqueness the model rests on. Raw immutability means the
- * original is never modified, which recomputing a derived layer does not violate.
- */
 export const RENORMALIZE_VERSION = "derived-observation-recompute/1";
 
 export interface RenormalizeSummary {
@@ -38,25 +31,15 @@ export interface RenormalizeSummary {
   revisionsRenormalized: number;
   observationsReplaced: number;
   analysisRecordsInvalidated: number;
-  /** Revisions that need re-normalization but cannot be recomputed, with the reason. */
   unsupported: readonly { sourceType: string; revisions: number; reason: string }[];
   rawEvidenceUnavailable: number;
 }
 
-/** Normalizers whose raw view holds a complete input, so the pass can reproduce their output. */
 const CURRENT_VERSION: Readonly<Record<string, string>> = {
   VENDOR_SESSION_VIEW: CLAUDE_NORMALIZER_VERSION,
   CODEX_THREAD_VIEW: CODEX_NORMALIZER_VERSION,
 };
 
-/**
- * Raw views that do not carry what their normalizer consumed.
- *
- * The additional-AI collector stores the Vendor payload, not the parsed view its normalizer reads,
- * and reconstructing that view means re-running per-provider parsing that only exists behind a live
- * source adapter. Reporting the gap is the honest answer; silently skipping would let a stale
- * normalization look current.
- */
 const UNSUPPORTED_REASON: Readonly<Record<string, string>> = {
   ADDITIONAL_AI_VIEW:
     "The stored raw view holds the Vendor payload rather than the parsed session the normalizer " +
@@ -76,14 +59,6 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/**
- * Recover the coverage the collector recorded for this view.
- *
- * Coverage describes the read that produced the view — whether pages were missed, whether the
- * source changed underneath, whether a turn had not settled — not the content being re-normalized.
- * Recomputing it now would be inventing a judgement about a read that already happened, so the
- * stored one is carried forward.
- */
 function storedCoverage(observations: readonly NormalizedObservation[]): string | null {
   const session = observations.find((item) => item.stableKey === "session" && item.kind === "SNAPSHOT");
   const coverage = session?.payload.messageCoverage;
@@ -98,8 +73,6 @@ function renormalizeObservations(
 ): NormalizedObservation[] {
   const view = record(payload);
   if (observationType === "VENDOR_SESSION_VIEW") {
-    // An unrecognized stored coverage is not silently downgraded to complete: falling back to the
-    // most optimistic value would turn a lost partial marker into a completeness claim.
     const value = CLAUDE_COVERAGES.find((item) => item === coverage);
     if (coverage !== null && value === undefined) {
       throw new Error(`stored coverage ${coverage} is not a Claude coverage value`);
@@ -130,7 +103,8 @@ export async function renormalizeStoredRevisions(options: {
   dryRun?: boolean;
 }): Promise<RenormalizeSummary> {
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
-  const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+  const databasePath = join(dataDirectory, "axtory.sqlite3");
+  const database = new AxtoryDatabase(databasePath);
   const blobs = new ContentAddressedBlobStore(join(dataDirectory, "blobs"));
   try {
     const revisions = database.revisionsWithNormalizerVersion();
@@ -144,8 +118,6 @@ export async function renormalizeStoredRevisions(options: {
     for (const revision of revisions) {
       const raw = database.rawObservationForRevision(revision.revisionId);
       if (!raw) {
-        // Raw evidence was deleted by policy or retention. The derived observations are all that is
-        // left of this revision, so they are kept as they are rather than dropped.
         rawEvidenceUnavailable += 1;
         continue;
       }
@@ -178,12 +150,15 @@ export async function renormalizeStoredRevisions(options: {
       const observations = renormalizeObservations(
         raw.observationType, payload, revision.revisionId, storedCoverage(existing),
       );
-      const result = database.replaceObservations(revision.revisionId, observations, current);
+      const result = replaceDerivedEvidenceAtomically({
+        databasePath,
+        revisionId: revision.revisionId,
+        observations,
+        normalizerVersion: current,
+      });
       observationsReplaced += result.inserted;
+      analysisRecordsInvalidated += result.analysisRecordsInvalidated;
       renormalizedRevisionIds.push(revision.revisionId);
-      // Invalidate each successfully recomputed revision immediately. If a later revision is corrupt
-      // and aborts the pass, analyses built on work already replaced must not remain PRESENT.
-      analysisRecordsInvalidated += database.markEvidenceInvalidatedForRevisionIds([revision.revisionId]);
     }
 
     return {
@@ -210,9 +185,7 @@ export function renderRenormalize(summary: RenormalizeSummary, dryRun: boolean):
     ...(summary.rawEvidenceUnavailable === 0
       ? []
       : [`Raw evidence unavailable: ${summary.rawEvidenceUnavailable} (derived observations kept as they are)`]),
-    ...(dryRun
-      ? []
-      : [`Analysis records invalidated: ${summary.analysisRecordsInvalidated}`]),
+    ...(dryRun ? [] : [`Analysis records invalidated: ${summary.analysisRecordsInvalidated}`]),
     ...summary.unsupported.map((item) =>
       `Unsupported: ${item.sourceType}, ${item.revisions} revisions. ${item.reason}`),
     "",
