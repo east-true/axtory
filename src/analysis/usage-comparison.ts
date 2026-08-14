@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
+import { writeAuditedJsonAtomically } from "../core/export.js";
 import type { Availability } from "../core/model.js";
-import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
-import { AxtoryDatabase } from "../core/storage.js";
+import { OUTPUT_POLICY_VERSION } from "../core/output.js";
 import { generateUsageReport, type UsageReportOutput } from "./usage-report.js";
 
 export const USAGE_COMPARISON_ANALYZER_VERSION = "usage-comparison/1";
@@ -187,21 +187,21 @@ export async function compareUsageWindows(options: {
   };
 
   if (options.jsonOutputPath !== undefined) {
-    // Writing the comparison to disk is an export like any other sink, so it carries the same audit
-    // row. The per-window reports run without a JSON path and deliberately record no export.
+    // The per-window reports deliberately run without a sink. The comparison itself is one audited
+    // export whose STARTED row is durable before the final JSON path can appear.
     const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
-    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, output);
-    const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
-    try {
-      database.recordExport({
-        id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
-        policyVersion: OUTPUT_POLICY_VERSION, recordCount: output.windows.length,
-        classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest,
-        exportedAt: now().toISOString(),
-      });
-    } finally {
-      database.close();
-    }
+    await writeAuditedJsonAtomically({
+      databasePath: join(dataDirectory, "axtory.sqlite3"),
+      jsonOutputPath: options.jsonOutputPath,
+      output,
+      audit: {
+        id: `export_${randomId()}`,
+        policyVersion: OUTPUT_POLICY_VERSION,
+        recordCount: output.windows.length,
+        classifications: ["LOCAL_METADATA"],
+      },
+      now: () => now().toISOString(),
+    });
   }
   return output;
 }

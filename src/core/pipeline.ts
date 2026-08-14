@@ -12,7 +12,8 @@ import {
 import { ContentAddressedBlobStore } from "./blob-store.js";
 import { stableId } from "./canonical-json.js";
 import { ensureAxtoryDataDirectory } from "./data-directory.js";
-import { applyOutputPolicy, OUTPUT_POLICY_VERSION, type SkeletonOutput, writeJsonAtomically } from "./output.js";
+import { writeAuditedJsonAtomically } from "./export.js";
+import { applyOutputPolicy, OUTPUT_POLICY_VERSION, type SkeletonOutput } from "./output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "./policy.js";
 import { persistCollectedRevision } from "./revision-persistence.js";
 import { AxtoryDatabase } from "./storage.js";
@@ -85,17 +86,17 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
     database.transaction(() => database.insertAnalysisRecords(records));
     database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
     const output = applyOutputPolicy(collectionRunId, revisionId, revisionCreated, records);
-    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, output);
-    database.recordExport({
-      id: `export_${randomId()}`,
-      sink: "JSON_FILE",
-      destination: options.jsonOutputPath,
-      policyVersion: OUTPUT_POLICY_VERSION,
-      recordCount: output.metrics.length,
-      classifications: ["PUBLIC_METADATA"],
-      status: "COMPLETED",
-      payloadDigest,
-      exportedAt: timestamp(),
+    await writeAuditedJsonAtomically({
+      databasePath,
+      jsonOutputPath: options.jsonOutputPath,
+      output,
+      audit: {
+        id: `export_${randomId()}`,
+        policyVersion: OUTPUT_POLICY_VERSION,
+        recordCount: output.metrics.length,
+        classifications: ["PUBLIC_METADATA"],
+      },
+      now: timestamp,
     });
     database.finishCollectionRun(collectionRunId, "COMPLETED", timestamp());
     return { output, databasePath };

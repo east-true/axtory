@@ -3,8 +3,9 @@ import { join, resolve } from "node:path";
 
 import { sha256, stableId } from "../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
+import { writeAuditedJsonAtomically } from "../core/export.js";
 import type { Availability } from "../core/model.js";
-import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
+import { OUTPUT_POLICY_VERSION } from "../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../core/policy.js";
 import {
   VERIFICATION_STATUSES,
@@ -1021,11 +1022,17 @@ async function buildUsageReport(
   try {
     database.transaction(() => database.insertAnalysisRecords(records));
     if (options.jsonOutputPath !== undefined) {
-      const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, report);
-      database.recordExport({
-        id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
-        policyVersion: OUTPUT_POLICY_VERSION, recordCount: records.length,
-        classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: now().toISOString(),
+      await writeAuditedJsonAtomically({
+        databasePath,
+        jsonOutputPath: options.jsonOutputPath,
+        output: report,
+        audit: {
+          id: `export_${randomId()}`,
+          policyVersion: OUTPUT_POLICY_VERSION,
+          recordCount: records.length,
+          classifications: ["LOCAL_METADATA"],
+        },
+        now: () => now().toISOString(),
       });
     }
     database.finishAnalysisRun(analysisRunId, "COMPLETED", now().toISOString());

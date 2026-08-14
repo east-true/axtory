@@ -6,7 +6,8 @@ import { correlateWorkWithGit, WORK_GIT_CORRELATION_VERSION } from "../../analys
 import { ContentAddressedBlobStore } from "../../core/blob-store.js";
 import { canonicalJson, stableId } from "../../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
-import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
+import { writeAuditedJsonAtomically } from "../../core/export.js";
+import { OUTPUT_POLICY_VERSION } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import type { AnalysisRecord } from "../../core/records.js";
 import { persistCollectedRevision } from "../../core/revision-persistence.js";
@@ -53,7 +54,8 @@ export async function collectWorkSystem(
   const randomId = options.randomId ?? randomUUID;
   const timestamp = () => now().toISOString();
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
-  const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+  const databasePath = join(dataDirectory, "axtory.sqlite3");
+  const database = new AxtoryDatabase(databasePath);
   const blobs = new ContentAddressedBlobStore(join(dataDirectory, "blobs"));
   const collectionRunId = `collection_${randomId()}`;
   const sourceType = `WORK_SYSTEM_${api.provider}`;
@@ -174,11 +176,17 @@ export async function collectWorkSystem(
         "A partial pagination result is never promoted to complete coverage.",
       ],
     };
-    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, output);
-    database.recordExport({
-      id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
-      policyVersion: OUTPUT_POLICY_VERSION, recordCount: output.metrics.length,
-      classifications: ["LOCAL_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: timestamp(),
+    await writeAuditedJsonAtomically({
+      databasePath,
+      jsonOutputPath: options.jsonOutputPath,
+      output,
+      audit: {
+        id: `export_${randomId()}`,
+        policyVersion: OUTPUT_POLICY_VERSION,
+        recordCount: output.metrics.length,
+        classifications: ["LOCAL_METADATA"],
+      },
+      now: timestamp,
     });
     database.finishCollectionRun(collectionRunId, "COMPLETED", timestamp());
     return output;
