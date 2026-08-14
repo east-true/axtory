@@ -8,6 +8,7 @@ import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY, policyAllows } from "../../core/policy.js";
 import type { AnalysisRecord } from "../../core/records.js";
+import { persistCollectedRevision } from "../../core/revision-persistence.js";
 import { AxtoryDatabase } from "../../core/storage.js";
 import { projectSession, type SessionProjection } from "../../projections/session.js";
 import type { AdditionalAiDiscovery } from "./discovery.js";
@@ -101,7 +102,7 @@ export async function collectAdditionalAiSource(
       const sourceObjectId = stableId("source", {
         sourceType, scopeIdentity: api.scopeIdentity, externalId: summary.externalId,
       });
-      database.upsertSourceObject(sourceObjectId, sourceType, `${api.scopeIdentity}:${summary.externalId}`);
+      const externalKey = `${api.scopeIdentity}:${summary.externalId}`;
       const unchangedRevisionId = summary.sourceUpdatedAt
         ? database.findRevisionBySourceModifiedAt(sourceObjectId, summary.sourceUpdatedAt)
         : null;
@@ -132,25 +133,27 @@ export async function collectAdditionalAiSource(
       }
       const blob = await blobs.put(rawBytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-      const created = database.insertRevision({
-        id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: timestamp(),
-        sourceModifiedAt: view.summary.sourceUpdatedAt,
-        normalizerVersion: ADDITIONAL_AI_NORMALIZER_VERSION,
-        payloadReference: blob.relativePath,
-      });
-      if (created) revisionsCreated += 1;
-      else revisionsUnchanged += 1;
-      database.transaction(() => {
-        database.insertRawObservation({
+      const persistedAt = timestamp();
+      const { created } = persistCollectedRevision(database, {
+        collectionRunId,
+        sourceObject: { id: sourceObjectId, sourceType, externalKey },
+        revision: {
+          id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+          sourceModifiedAt: view.summary.sourceUpdatedAt,
+          normalizerVersion: ADDITIONAL_AI_NORMALIZER_VERSION, payloadReference: blob.relativePath,
+        },
+        rawObservation: {
           id: stableId("raw", { revisionId, type: "ADDITIONAL_AI_VIEW" }),
           sourceRevisionId: revisionId, observationType: "ADDITIONAL_AI_VIEW",
           provenance: view.provenance, dataClassification: view.dataClassification,
-          payloadReference: blob.relativePath, observedAt: timestamp(),
+          payloadReference: blob.relativePath, observedAt: persistedAt,
           sourceModifiedAt: view.summary.sourceUpdatedAt,
-        });
-        database.insertObservations(normalizeAdditionalAiSession(view, revisionId));
-        database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
+        },
+        observations: normalizeAdditionalAiSession(view, revisionId),
+        observedAt: persistedAt,
       });
+      if (created) revisionsCreated += 1;
+      else revisionsUnchanged += 1;
       projections.push(projectSession(database.observationsForRevision(revisionId)));
       revisionIds.push(revisionId);
       viewCoverages.push(view.coverage);
