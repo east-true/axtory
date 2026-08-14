@@ -208,18 +208,22 @@ export class BoundedSpool {
     await rm(target, { force: false });
   }
 
-  async deleteWhere(predicate: (envelope: SpoolEnvelope) => boolean): Promise<number> {
+  async matchingPaths(predicate: (envelope: SpoolEnvelope) => boolean): Promise<string[]> {
     await this.initialize();
     const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry)).sort();
-    let deleted = 0;
+    const paths: string[] = [];
     for (const entry of entries) {
       const target = join(this.root, entry);
       const id = entry.slice(0, -5);
       const envelope = await readEnvelope(target, id);
-      if (!predicate(envelope)) continue;
-      await rm(target, { force: false });
-      deleted += 1;
+      if (predicate(envelope)) paths.push(target);
     }
-    return deleted;
+    return paths;
+  }
+
+  async deleteWhere(predicate: (envelope: SpoolEnvelope) => boolean): Promise<number> {
+    const paths = await this.matchingPaths(predicate);
+    for (const path of paths) await rm(path, { force: false });
+    return paths.length;
   }
 }
