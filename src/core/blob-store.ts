@@ -20,6 +20,10 @@ export class ContentAddressedBlobStore {
     return join(this.root, normalized);
   }
 
+  deletionPath(relativePath: string): string {
+    return this.path(relativePath);
+  }
+
   private async verifyBlob(target: string, digest: string, expectedBytes?: number): Promise<Uint8Array> {
     const metadata = await lstat(target);
     if (!metadata.isFile()) throw new Error("blob target is not a regular file");
