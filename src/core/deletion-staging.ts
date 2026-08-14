@@ -18,12 +18,17 @@ interface StagedDeletionManifest {
   entries: readonly StagedDeletionEntry[];
 }
 
+function nestedRelative(root: string, target: string): string | null {
+  const nested = relative(root, target);
+  return nested === "" || nested === ".." || nested.startsWith(`..${sep}`) || isAbsolute(nested)
+    ? null
+    : nested;
+}
+
 function safeRelative(root: string, absolutePath: string): string {
   const target = resolve(absolutePath);
-  const nested = relative(root, target);
-  if (nested === "" || nested === ".." || nested.startsWith(`..${sep}`) || isAbsolute(nested)) {
-    throw new Error("deletion staging path is outside the AXtory data directory");
-  }
+  const nested = nestedRelative(root, target);
+  if (nested === null) throw new Error("deletion staging path is outside the AXtory data directory");
   return nested;
 }
 
@@ -32,11 +37,38 @@ function safeResolve(root: string, relativePath: string): string {
     throw new Error("deletion staging manifest contains an unsafe path");
   }
   const target = resolve(root, relativePath);
-  const nested = relative(root, target);
-  if (nested === "" || nested === ".." || nested.startsWith(`..${sep}`) || isAbsolute(nested)) {
+  if (nestedRelative(root, target) === null) {
     throw new Error("deletion staging manifest contains an unsafe path");
   }
   return target;
+}
+
+function validateManifestPaths(dataDirectory: string, manifest: StagedDeletionManifest): void {
+  const stagingFiles = resolve(dataDirectory, STAGING_DIRECTORY, manifest.deletionId, "files");
+  const blobs = resolve(dataDirectory, "blobs");
+  const spool = resolve(dataDirectory, "spool");
+  const originals = new Set<string>();
+  const stagedPaths = new Set<string>();
+
+  for (const entry of manifest.entries) {
+    const original = safeResolve(dataDirectory, entry.originalRelativePath);
+    const staged = safeResolve(dataDirectory, entry.stagedRelativePath);
+    const stagedName = nestedRelative(stagingFiles, staged);
+    const originalInBlob = nestedRelative(blobs, original);
+    const originalInSpool = nestedRelative(spool, original);
+
+    // Staging is an internal transaction journal, not a generic data-directory move list. Recovery
+    // may only restore/delete files AXtory deletion actually stages, and only from this manifest's
+    // own files directory. This keeps a corrupt manifest from renaming the database, marker, another
+    // deletion's staging files, or any other internal state.
+    if (stagedName === null || !/^\d+$/u.test(stagedName) ||
+      (originalInBlob === null && originalInSpool === null) || original === staged ||
+      originals.has(original) || stagedPaths.has(staged)) {
+      throw new Error("deletion staging manifest contains an invalid path mapping");
+    }
+    originals.add(original);
+    stagedPaths.add(staged);
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -90,6 +122,7 @@ async function loadManifest(dataDirectory: string, deletionId: string): Promise<
   }
   const manifest = parseManifest(parsed);
   if (manifest.deletionId !== deletionId) throw new Error("deletion staging manifest identity mismatch");
+  validateManifestPaths(dataDirectory, manifest);
   return manifest;
 }
 
@@ -102,6 +135,7 @@ async function removeEmptyStagingParent(dataDirectory: string): Promise<void> {
 }
 
 async function rollbackManifest(dataDirectory: string, manifest: StagedDeletionManifest): Promise<void> {
+  validateManifestPaths(dataDirectory, manifest);
   for (const entry of [...manifest.entries].reverse()) {
     const original = safeResolve(dataDirectory, entry.originalRelativePath);
     const staged = safeResolve(dataDirectory, entry.stagedRelativePath);
@@ -138,6 +172,7 @@ export async function stageDeletionFiles(options: {
     createdAt: options.createdAt,
     entries,
   };
+  validateManifestPaths(dataDirectory, manifest);
   await writeManifest(join(stagingRoot, MANIFEST_NAME), manifest);
 
   try {
@@ -160,6 +195,9 @@ export async function rollbackStagedDeletion(dataDirectory: string, deletionId: 
 
 export async function completeStagedDeletion(dataDirectory: string, deletionId: string): Promise<void> {
   const root = resolve(dataDirectory);
+  // Validate before recursive removal as well: a damaged journal must fail closed rather than being
+  // silently accepted simply because the database-side commit marker exists.
+  await loadManifest(root, deletionId);
   await rm(join(root, STAGING_DIRECTORY, deletionId), { recursive: true, force: true });
   await removeEmptyStagingParent(root);
 }
@@ -211,9 +249,6 @@ export async function reconcileDeletionStaging(dataDirectory: string): Promise<n
       (row ? committed : uncommitted).push(manifest);
     }
 
-    // Only an uncommitted manifest can represent an operation that is still between staging and its
-    // DB commit. A committed row is authoritative even if the process that created it is still alive
-    // after a finalization error, so a retry in that same process may safely finish cleanup.
     for (const manifest of uncommitted) {
       if (processAlive(manifest.ownerPid)) {
         throw new Error("an AXtory deletion is still in progress for this data directory");
