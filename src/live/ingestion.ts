@@ -5,7 +5,8 @@ import { analyzeOtelFacts, OTEL_FACT_ANALYZER_VERSION } from "../analysis/otel-a
 import { ContentAddressedBlobStore } from "../core/blob-store.js";
 import { canonicalJson, stableId } from "../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
-import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
+import { writeAuditedJsonAtomically } from "../core/export.js";
+import { OUTPUT_POLICY_VERSION } from "../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "../core/policy.js";
 import type { AnalysisRecord, NormalizedObservation } from "../core/records.js";
 import { AxtoryDatabase } from "../core/storage.js";
@@ -50,7 +51,8 @@ export async function ingestLiveSpool(options: {
   const spool = new BoundedSpool(join(dataDirectory, "spool"));
   await spool.reconcileInterrupted(timestamp());
   const pending = await spool.listPending();
-  const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+  const databasePath = join(dataDirectory, "axtory.sqlite3");
+  const database = new AxtoryDatabase(databasePath);
   const blobs = new ContentAddressedBlobStore(join(dataDirectory, "blobs"));
   const collectionRunId = `collection_${randomId()}`;
   database.reconcileInterruptedRuns(timestamp());
@@ -132,11 +134,17 @@ export async function ingestLiveSpool(options: {
         latency: telemetryAvailability(records, (record) => record.key.startsWith("telemetry.event.latency.")),
       },
     };
-    const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, summary);
-    database.recordExport({
-      id: `export_${randomId()}`, sink: "JSON_FILE", destination: options.jsonOutputPath,
-      policyVersion: OUTPUT_POLICY_VERSION, recordCount: records.length,
-      classifications: ["PUBLIC_METADATA"], status: "COMPLETED", payloadDigest, exportedAt: timestamp(),
+    await writeAuditedJsonAtomically({
+      databasePath,
+      jsonOutputPath: options.jsonOutputPath,
+      output: summary,
+      audit: {
+        id: `export_${randomId()}`,
+        policyVersion: OUTPUT_POLICY_VERSION,
+        recordCount: records.length,
+        classifications: ["PUBLIC_METADATA"],
+      },
+      now: timestamp,
     });
     // The run completed its pass over the spool. Envelopes that failed never produced a revision,
     // so the run stays COMPLETED and keeps the successfully ingested revisions eligible as heads;
