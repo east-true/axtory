@@ -2,6 +2,8 @@ import { chmod, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 
 import { homedir } from "node:os";
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 
+import { reconcileDeletionStaging } from "./deletion-staging.js";
+
 const MARKER = ".axtory-data-directory";
 const MARKER_CONTENT = "axtory.data-directory.v1\n";
 
@@ -34,6 +36,7 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
       "axtory.sqlite3-wal",
       "blobs",
       "output.json",
+      ".deletion-staging",
     ]);
     const unexpected = (await readdir(target)).filter((entry) => !knownLegacyEntries.has(entry));
     if (unexpected.length > 0) {
@@ -46,6 +49,7 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
       await verifyMarker(marker);
     }
   }
+  await reconcileDeletionStaging(target);
   return target;
 }
 
