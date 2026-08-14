@@ -4,6 +4,7 @@ import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 
 import { reconcileDeletionStaging } from "./deletion-staging.js";
 import { reconcileIncompleteRevisions } from "./incomplete-revision-recovery.js";
+import { withDataMutationLock } from "./mutation-lock.js";
 
 const MARKER = ".axtory-data-directory";
 const MARKER_CONTENT = "axtory.data-directory.v1\n";
@@ -38,6 +39,7 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
       "blobs",
       "output.json",
       ".deletion-staging",
+      ".axtory-mutation-lock",
     ]);
     const unexpected = (await readdir(target)).filter((entry) => !knownLegacyEntries.has(entry));
     if (unexpected.length > 0) {
@@ -50,8 +52,10 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
       await verifyMarker(marker);
     }
   }
-  await reconcileDeletionStaging(target);
-  await reconcileIncompleteRevisions(target);
+  await withDataMutationLock(target, async () => {
+    await reconcileDeletionStaging(target);
+    await reconcileIncompleteRevisions(target);
+  });
   return target;
 }
 
@@ -72,5 +76,8 @@ export async function purgeAxtoryDataDirectory(path: string, confirmation: strin
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw error;
     throw new Error("refusing to purge a directory without a valid AXtory marker", { cause: error });
   }
-  await rm(target, { recursive: true, force: false });
+  await withDataMutationLock(target, async () => {
+    await verifyMarker(resolve(target, MARKER));
+    await rm(target, { recursive: true, force: false });
+  });
 }

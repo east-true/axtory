@@ -144,7 +144,8 @@ export async function collectClaudeHistory(
       const blob = await blobs.put(rawBytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
       const persistedAt = timestamp();
-      const { created } = persistCollectedRevision(database, {
+      const { created } = await persistCollectedRevision(database, {
+        dataDirectory,
         collectionRunId,
         sourceObject: { id: sourceObjectId, sourceType: "CLAUDE_CODE", externalKey: session.sessionId },
         revision: {

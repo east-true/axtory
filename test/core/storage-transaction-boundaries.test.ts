@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { ContentAddressedBlobStore } from "../../src/core/blob-store.js";
 import { stableId } from "../../src/core/canonical-json.js";
 import { replaceDerivedEvidenceAtomically } from "../../src/core/derived-storage.js";
 import type { AnalysisRecord, NormalizedObservation } from "../../src/core/records.js";
@@ -26,19 +27,22 @@ test("a collected revision cannot commit its header without the evidence bundle"
   const database = new AxtoryDatabase(databasePath);
   try {
     database.startCollectionRun("collection_1", "CLAUDE_CODE", "2026-08-14T00:00:00.000Z");
+    const blob = await new ContentAddressedBlobStore(join(directory, "blobs"))
+      .put(new TextEncoder().encode("atomic-revision-test"));
     await assert.rejects(async () => {
-      persistCollectedRevision(database, {
+      await persistCollectedRevision(database, {
+        dataDirectory: directory,
         collectionRunId: "collection_1",
         sourceObject: { id: "source_1", sourceType: "CLAUDE_CODE", externalKey: "session_1" },
         revision: {
-          id: "revision_1", sourceObjectId: "source_1", contentHash: "a".repeat(64),
+          id: "revision_1", sourceObjectId: "source_1", contentHash: blob.digest,
           collectedAt: "2026-08-14T00:00:00.000Z", sourceModifiedAt: null,
-          normalizerVersion: "test/1", payloadReference: "sha256/aa/" + "a".repeat(64),
+          normalizerVersion: "test/1", payloadReference: blob.relativePath,
         },
         rawObservation: {
           id: "raw_1", sourceRevisionId: "revision_1", observationType: "VENDOR_SESSION_VIEW",
           provenance: "OFFICIAL_API", dataClassification: "CONVERSATION_CONTENT",
-          payloadReference: "sha256/aa/" + "a".repeat(64), observedAt: "2026-08-14T00:00:00.000Z",
+          payloadReference: blob.relativePath, observedAt: "2026-08-14T00:00:00.000Z",
           sourceModifiedAt: null,
         },
         // The mismatched FK deliberately makes the final bundle fail after source/revision/raw writes.

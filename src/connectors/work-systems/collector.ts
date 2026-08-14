@@ -14,12 +14,7 @@ import { AxtoryDatabase } from "../../core/storage.js";
 import { projectWorkArtifact, type WorkArtifactProjection } from "../../projections/work-artifact.js";
 import { WORK_SYSTEM_NORMALIZER_VERSION, normalizeWorkArtifact } from "./normalizer.js";
 import { enumerateWorkArtifacts } from "./pagination.js";
-import type {
-  WorkArtifactKind,
-  WorkStatusCategory,
-  WorkSystemApi,
-  WorkSystemDiscovery,
-} from "./types.js";
+import type { WorkArtifactKind, WorkStatusCategory, WorkSystemApi, WorkSystemDiscovery } from "./types.js";
 
 const RAW_ARTIFACT_LIMIT_BYTES = 2 * 1024 * 1024;
 
@@ -30,9 +25,7 @@ export interface WorkSystemCollectionOutput {
   coverage: "COMPLETE_FOR_RETURNED_VIEW" | "PARTIAL_PAGINATION";
   authentication: WorkSystemDiscovery["authentication"];
   artifacts: {
-    returned: number;
-    revisionsCreated: number;
-    revisionsUnchanged: number;
+    returned: number; revisionsCreated: number; revisionsUnchanged: number;
     byKind: Readonly<Record<WorkArtifactKind, number | null>>;
     byStatus: Readonly<Record<WorkStatusCategory, number>>;
   };
@@ -106,7 +99,8 @@ export async function collectWorkSystem(
       const blob = await blobs.put(bytes);
       const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
       const persistedAt = timestamp();
-      const { created } = persistCollectedRevision(database, {
+      const { created } = await persistCollectedRevision(database, {
+        dataDirectory,
         collectionRunId,
         sourceObject: { id: sourceObjectId, sourceType, externalKey },
         revision: {
