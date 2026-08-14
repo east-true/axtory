@@ -25,6 +25,46 @@ test("a mutation lease is re-entrant only inside the acquiring async call tree",
   }
 });
 
+test("an async descendant cannot reuse an inherited lease after its owner operation returned", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "axtory-mutation-detached-"));
+  const wakeDetached = deferred();
+  const blockerEntered = deferred();
+  const releaseBlocker = deferred();
+  let detached: Promise<void> | undefined;
+  let detachedInside = false;
+  try {
+    await withDataMutationLock(directory, async () => {
+      // This callback inherits the AsyncLocalStorage context, but deliberately outlives the operation.
+      detached = new Promise<void>((resolveDetached, rejectDetached) => {
+        setTimeout(() => {
+          void (async () => {
+            await wakeDetached.promise;
+            await withDataMutationLock(directory, async () => { detachedInside = true; }, 2_000);
+          })().then(resolveDetached, rejectDetached);
+        }, 0);
+      });
+    });
+
+    const blocker = withDataMutationLock(directory, async () => {
+      blockerEntered.resolve();
+      await releaseBlocker.promise;
+    }, 2_000);
+    await blockerEntered.promise;
+    wakeDetached.resolve();
+
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 75));
+    assert.equal(detachedInside, false, "a released inherited lease must not bypass the current holder");
+    releaseBlocker.resolve();
+    await blocker;
+    await detached;
+    assert.equal(detachedInside, true);
+  } finally {
+    wakeDetached.resolve();
+    releaseBlocker.resolve();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("independent mutation callers for one data directory are serialized", async () => {
   const directory = await mkdtemp(join(tmpdir(), "axtory-mutation-serialized-"));
   const entered = deferred();
