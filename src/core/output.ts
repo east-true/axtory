@@ -1,4 +1,4 @@
-import { mkdir, open, rename } from "node:fs/promises";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { canonicalJson, sha256 } from "./canonical-json.js";
@@ -74,6 +74,10 @@ export async function writeJsonAtomically(path: string, output: object): Promise
   } finally {
     await handle.close();
   }
-  await rename(temporary, path);
+  try {
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   return sha256(canonicalJson(output));
 }

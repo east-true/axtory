@@ -17,6 +17,8 @@ export interface SpoolEnvelope {
   states: readonly { state: SpoolState; at: string; reason?: string }[];
 }
 
+const LIVE_CHANNELS = new Set<LiveChannel>(["CLAUDE_HOOK", "CLAUDE_OTEL_METRICS", "CLAUDE_OTEL_LOGS"]);
+
 async function writeDurably(path: string, body: string): Promise<string> {
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
@@ -56,6 +58,32 @@ async function atomicCreate(path: string, body: string): Promise<boolean> {
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+function parseEnvelope(body: string, expectedId: string): SpoolEnvelope {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (error) {
+    throw new Error("live spool entry is not valid JSON", { cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("live spool entry has an invalid envelope");
+  }
+  const envelope = parsed as Partial<SpoolEnvelope>;
+  if (envelope.schemaVersion !== "axtory.live-spool.v1" || envelope.id !== expectedId ||
+    typeof envelope.channel !== "string" || !LIVE_CHANNELS.has(envelope.channel as LiveChannel) ||
+    typeof envelope.receivedAt !== "string" || typeof envelope.payloadDigest !== "string" ||
+    !Array.isArray(envelope.states)) {
+    throw new Error("live spool entry has an invalid envelope");
+  }
+  const actualDigest = sha256(canonicalJson(envelope.payload));
+  if (envelope.payloadDigest !== actualDigest) throw new Error("live spool payload does not match its digest");
+  return envelope as SpoolEnvelope;
+}
+
+async function readEnvelope(path: string, expectedId: string): Promise<SpoolEnvelope> {
+  return parseEnvelope(await readFile(path, "utf8"), expectedId);
 }
 
 export class BoundedSpool {
@@ -100,6 +128,7 @@ export class BoundedSpool {
       const target = this.path(id);
       try {
         await stat(target);
+        await readEnvelope(target, id);
         return { id, duplicate: true };
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -119,7 +148,9 @@ export class BoundedSpool {
       if (entries.length >= this.limits.maximumItems || bytes + Buffer.byteLength(body) > this.limits.maximumBytes) {
         throw new Error("live spool capacity exceeded");
       }
-      return { id, duplicate: !await atomicCreate(target, body) };
+      const created = await atomicCreate(target, body);
+      if (!created) await readEnvelope(target, id);
+      return { id, duplicate: !created };
     });
   }
 
@@ -128,7 +159,8 @@ export class BoundedSpool {
     const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry)).sort();
     const envelopes: SpoolEnvelope[] = [];
     for (const entry of entries) {
-      const envelope = JSON.parse(await readFile(join(this.root, entry), "utf8")) as SpoolEnvelope;
+      const id = entry.slice(0, -5);
+      const envelope = await readEnvelope(join(this.root, entry), id);
       const state = envelope.states.at(-1)?.state;
       if (state === "RECEIVED" || state === "FAILED") envelopes.push(envelope);
     }
@@ -141,7 +173,8 @@ export class BoundedSpool {
     let reconciled = 0;
     for (const entry of entries) {
       const target = join(this.root, entry);
-      const envelope = JSON.parse(await readFile(target, "utf8")) as SpoolEnvelope;
+      const id = entry.slice(0, -5);
+      const envelope = await readEnvelope(target, id);
       if (envelope.states.at(-1)?.state !== "PROCESSING") continue;
       const updated: SpoolEnvelope = {
         ...envelope,
@@ -155,7 +188,7 @@ export class BoundedSpool {
 
   async transition(id: string, state: "PROCESSING" | "COMPLETED" | "FAILED", at: string, reason?: string): Promise<void> {
     const target = this.path(id);
-    const envelope = JSON.parse(await readFile(target, "utf8")) as SpoolEnvelope;
+    const envelope = await readEnvelope(target, id);
     const current = envelope.states.at(-1)?.state;
     const permitted = state === "PROCESSING"
       ? current === "RECEIVED" || current === "FAILED"
@@ -170,7 +203,7 @@ export class BoundedSpool {
 
   async discardCompleted(id: string): Promise<void> {
     const target = this.path(id);
-    const envelope = JSON.parse(await readFile(target, "utf8")) as SpoolEnvelope;
+    const envelope = await readEnvelope(target, id);
     if (envelope.states.at(-1)?.state !== "COMPLETED") throw new Error("only completed spool entries can be discarded");
     await rm(target, { force: false });
   }
@@ -181,7 +214,8 @@ export class BoundedSpool {
     let deleted = 0;
     for (const entry of entries) {
       const target = join(this.root, entry);
-      const envelope = JSON.parse(await readFile(target, "utf8")) as SpoolEnvelope;
+      const id = entry.slice(0, -5);
+      const envelope = await readEnvelope(target, id);
       if (!predicate(envelope)) continue;
       await rm(target, { force: false });
       deleted += 1;
