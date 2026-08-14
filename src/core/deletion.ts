@@ -6,6 +6,7 @@ import { ensureAxtoryDataDirectory } from "./data-directory.js";
 import {
   completeStagedDeletion, rollbackStagedDeletion, stageDeletionFiles,
 } from "./deletion-staging.js";
+import { withDataMutationLock } from "./mutation-lock.js";
 import type { DataClassification } from "./records.js";
 import type { CollectionPolicy } from "./policy.js";
 import { AxtoryDatabase } from "./storage.js";
@@ -77,9 +78,6 @@ async function executeInternalDeletion(
     throw new Error("source object does not exist");
   }
 
-  // A content-addressed blob can be shared by several raw observations. Stage it only when every
-  // database reference to that blob is part of this deletion; otherwise another retained revision
-  // still owns the file.
   const targetedReferenceCounts = new Map<string, number>();
   for (const item of raw) {
     targetedReferenceCounts.set(item.payloadReference, (targetedReferenceCounts.get(item.payloadReference) ?? 0) + 1);
@@ -171,9 +169,6 @@ async function executeInternalDeletion(
     });
     committed = true;
 
-    // secure_delete applies to the transaction itself. Checkpoint/VACUUM closes the remaining SQLite
-    // deletion window before staged raw files are finally discarded. If this process dies after the
-    // DB commit, the durable deletion_run is the commit marker used by startup reconciliation.
     database.finalizeSecureDeletion();
     await completeStagedDeletion(options.dataDirectory, deletionId);
 
@@ -218,18 +213,20 @@ export async function executeSelectiveDeletion(options: {
     throw new Error(`${options.mode} requires one or more revision ids`);
   }
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
-  const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
-  try {
-    return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
-      mode: options.mode,
-      target: options.target,
-      dataDirectory,
-      now: options.now ?? (() => new Date()),
-      randomId: options.randomId ?? randomUUID,
-    });
-  } finally {
-    database.close();
-  }
+  return withDataMutationLock(dataDirectory, async () => {
+    const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+    try {
+      return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
+        mode: options.mode,
+        target: options.target,
+        dataDirectory,
+        now: options.now ?? (() => new Date()),
+        randomId: options.randomId ?? randomUUID,
+      });
+    } finally {
+      database.close();
+    }
+  });
 }
 
 export async function applyRetention(options: {
@@ -240,46 +237,48 @@ export async function applyRetention(options: {
 }): Promise<DeletionResult> {
   const now = options.now ?? (() => new Date());
   const dataDirectory = await ensureAxtoryDataDirectory(options.dataDirectory);
-  const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
-  try {
-    const classifications = Object.entries(options.policy.classifications);
-    for (const [classification, rule] of classifications) {
-      if (rule.retentionDays !== null &&
-        (!Number.isInteger(rule.retentionDays) || rule.retentionDays < 0)) {
-        throw new Error(`invalid retention days for ${classification}`);
+  return withDataMutationLock(dataDirectory, async () => {
+    const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
+    try {
+      const classifications = Object.entries(options.policy.classifications);
+      for (const [classification, rule] of classifications) {
+        if (rule.retentionDays !== null &&
+          (!Number.isInteger(rule.retentionDays) || rule.retentionDays < 0)) {
+          throw new Error(`invalid retention days for ${classification}`);
+        }
       }
+      database.saveCollectionPolicy(options.policy, now().toISOString());
+      const cutoffs = new Map<DataClassification, string>();
+      const eligible = classifications.flatMap(([classification, rule]) => {
+        if (rule.retentionDays === null) return [];
+        const cutoff = new Date(now().getTime() - rule.retentionDays * 86_400_000).toISOString();
+        cutoffs.set(classification as DataClassification, cutoff);
+        return database.rawObservationsEligibleForRetention(classification as DataClassification, cutoff);
+      });
+      const rawIds = unique(eligible.map((item) => item.id));
+      const annotationIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
+        database.annotationsEligibleForRetention(classification, cutoff)));
+      const verificationNoteIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
+        database.verificationNotesEligibleForRetention(classification, cutoff)));
+      return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
+        mode: "RETENTION",
+        target: { revisionIds: unique(eligible.map((item) => item.sourceRevisionId)) },
+        dataDirectory,
+        rawObservationIds: rawIds,
+        annotationIds,
+        verificationNoteIds,
+        spoolDeletePredicate: (envelope) => {
+          const classification: DataClassification = envelope.channel === "CLAUDE_HOOK"
+            ? "TOOL_CONTENT"
+            : "PERSONAL_DATA";
+          const cutoff = cutoffs.get(classification);
+          return cutoff !== undefined && envelope.receivedAt < cutoff;
+        },
+        now,
+        randomId: options.randomId ?? randomUUID,
+      });
+    } finally {
+      database.close();
     }
-    database.saveCollectionPolicy(options.policy, now().toISOString());
-    const cutoffs = new Map<DataClassification, string>();
-    const eligible = classifications.flatMap(([classification, rule]) => {
-      if (rule.retentionDays === null) return [];
-      const cutoff = new Date(now().getTime() - rule.retentionDays * 86_400_000).toISOString();
-      cutoffs.set(classification as DataClassification, cutoff);
-      return database.rawObservationsEligibleForRetention(classification as DataClassification, cutoff);
-    });
-    const rawIds = unique(eligible.map((item) => item.id));
-    const annotationIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
-      database.annotationsEligibleForRetention(classification, cutoff)));
-    const verificationNoteIds = unique([...cutoffs].flatMap(([classification, cutoff]) =>
-      database.verificationNotesEligibleForRetention(classification, cutoff)));
-    return await executeInternalDeletion(database, new ContentAddressedBlobStore(join(dataDirectory, "blobs")), {
-      mode: "RETENTION",
-      target: { revisionIds: unique(eligible.map((item) => item.sourceRevisionId)) },
-      dataDirectory,
-      rawObservationIds: rawIds,
-      annotationIds,
-      verificationNoteIds,
-      spoolDeletePredicate: (envelope) => {
-        const classification: DataClassification = envelope.channel === "CLAUDE_HOOK"
-          ? "TOOL_CONTENT"
-          : "PERSONAL_DATA";
-        const cutoff = cutoffs.get(classification);
-        return cutoff !== undefined && envelope.receivedAt < cutoff;
-      },
-      now,
-      randomId: options.randomId ?? randomUUID,
-    });
-  } finally {
-    database.close();
-  }
+  });
 }
