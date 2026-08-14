@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { canonicalJson, sha256, stableId } from "../core/canonical-json.js";
+import { withDataMutationLock } from "../core/mutation-lock.js";
 
 export type LiveChannel = "CLAUDE_HOOK" | "CLAUDE_OTEL_METRICS" | "CLAUDE_OTEL_LOGS";
 export type SpoolState = "STARTED" | "RECEIVED" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -40,13 +41,6 @@ async function atomicWrite(path: string, body: string): Promise<void> {
   }
 }
 
-/**
- * Create the entry only if nothing holds its name yet.
- *
- * `rename` replaces its destination, so two concurrent receiver requests both passed the existence
- * check and the second silently overwrote the first while the client was told 200. `link` fails
- * with EEXIST instead, which is what a duplicate must report.
- */
 async function atomicCreate(path: string, body: string): Promise<boolean> {
   const temporary = await writeDurably(path, body);
   try {
@@ -87,7 +81,6 @@ async function readEnvelope(path: string, expectedId: string): Promise<SpoolEnve
 }
 
 export class BoundedSpool {
-  // Receiver callbacks can overlap. Capacity accounting and creation must be one critical section.
   private appendTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -99,6 +92,10 @@ export class BoundedSpool {
 
   private async initialize(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
+  }
+
+  private mutationRoot(): string {
+    return dirname(this.root);
   }
 
   private path(id: string): string {
@@ -119,7 +116,7 @@ export class BoundedSpool {
     idempotencyKey?: string;
   }): Promise<{ id: string; duplicate: boolean }> {
     await this.initialize();
-    return this.serializeAppend(async () => {
+    return this.serializeAppend(() => withDataMutationLock(this.mutationRoot(), async () => {
       const payloadBody = canonicalJson(input.payload);
       const id = stableId("spool", {
         channel: input.channel,
@@ -151,7 +148,7 @@ export class BoundedSpool {
       const created = await atomicCreate(target, body);
       if (!created) await readEnvelope(target, id);
       return { id, duplicate: !created };
-    });
+    }));
   }
 
   async listPending(): Promise<SpoolEnvelope[]> {
@@ -169,43 +166,49 @@ export class BoundedSpool {
 
   async reconcileInterrupted(at: string): Promise<number> {
     await this.initialize();
-    const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry)).sort();
-    let reconciled = 0;
-    for (const entry of entries) {
-      const target = join(this.root, entry);
-      const id = entry.slice(0, -5);
-      const envelope = await readEnvelope(target, id);
-      if (envelope.states.at(-1)?.state !== "PROCESSING") continue;
-      const updated: SpoolEnvelope = {
-        ...envelope,
-        states: [...envelope.states, { state: "FAILED", at, reason: "INTERRUPTED" }],
-      };
-      await atomicWrite(target, `${canonicalJson(updated)}\n`);
-      reconciled += 1;
-    }
-    return reconciled;
+    return withDataMutationLock(this.mutationRoot(), async () => {
+      const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry)).sort();
+      let reconciled = 0;
+      for (const entry of entries) {
+        const target = join(this.root, entry);
+        const id = entry.slice(0, -5);
+        const envelope = await readEnvelope(target, id);
+        if (envelope.states.at(-1)?.state !== "PROCESSING") continue;
+        const updated: SpoolEnvelope = {
+          ...envelope,
+          states: [...envelope.states, { state: "FAILED", at, reason: "INTERRUPTED" }],
+        };
+        await atomicWrite(target, `${canonicalJson(updated)}\n`);
+        reconciled += 1;
+      }
+      return reconciled;
+    });
   }
 
   async transition(id: string, state: "PROCESSING" | "COMPLETED" | "FAILED", at: string, reason?: string): Promise<void> {
-    const target = this.path(id);
-    const envelope = await readEnvelope(target, id);
-    const current = envelope.states.at(-1)?.state;
-    const permitted = state === "PROCESSING"
-      ? current === "RECEIVED" || current === "FAILED"
-      : current === "PROCESSING";
-    if (!permitted) throw new Error(`invalid spool transition ${String(current)} -> ${state}`);
-    const updated: SpoolEnvelope = {
-      ...envelope,
-      states: [...envelope.states, { state, at, ...(reason ? { reason } : {}) }],
-    };
-    await atomicWrite(target, `${canonicalJson(updated)}\n`);
+    return withDataMutationLock(this.mutationRoot(), async () => {
+      const target = this.path(id);
+      const envelope = await readEnvelope(target, id);
+      const current = envelope.states.at(-1)?.state;
+      const permitted = state === "PROCESSING"
+        ? current === "RECEIVED" || current === "FAILED"
+        : current === "PROCESSING";
+      if (!permitted) throw new Error(`invalid spool transition ${String(current)} -> ${state}`);
+      const updated: SpoolEnvelope = {
+        ...envelope,
+        states: [...envelope.states, { state, at, ...(reason ? { reason } : {}) }],
+      };
+      await atomicWrite(target, `${canonicalJson(updated)}\n`);
+    });
   }
 
   async discardCompleted(id: string): Promise<void> {
-    const target = this.path(id);
-    const envelope = await readEnvelope(target, id);
-    if (envelope.states.at(-1)?.state !== "COMPLETED") throw new Error("only completed spool entries can be discarded");
-    await rm(target, { force: false });
+    return withDataMutationLock(this.mutationRoot(), async () => {
+      const target = this.path(id);
+      const envelope = await readEnvelope(target, id);
+      if (envelope.states.at(-1)?.state !== "COMPLETED") throw new Error("only completed spool entries can be discarded");
+      await rm(target, { force: false });
+    });
   }
 
   async matchingPaths(predicate: (envelope: SpoolEnvelope) => boolean): Promise<string[]> {
@@ -222,8 +225,10 @@ export class BoundedSpool {
   }
 
   async deleteWhere(predicate: (envelope: SpoolEnvelope) => boolean): Promise<number> {
-    const paths = await this.matchingPaths(predicate);
-    for (const path of paths) await rm(path, { force: false });
-    return paths.length;
+    return withDataMutationLock(this.mutationRoot(), async () => {
+      const paths = await this.matchingPaths(predicate);
+      for (const path of paths) await rm(path, { force: false });
+      return paths.length;
+    });
   }
 }
