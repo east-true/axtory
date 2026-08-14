@@ -16,7 +16,15 @@ interface LockOwner {
   createdAt: string;
 }
 
-const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
+// AsyncLocalStorage context can outlive the operation that created it when code schedules detached
+// callbacks. Carry the concrete lease token, not only the root, and separately track which tokens are
+// still active so a detached callback cannot mistake an already released lease for re-entrancy.
+const heldLocks = new AsyncLocalStorage<ReadonlyMap<string, string>>();
+const activeLeases = new Set<string>();
+
+function leaseKey(root: string, token: string): string {
+  return `${root}\u0000${token}`;
+}
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -113,8 +121,9 @@ async function release(lockDirectory: string, token: string): Promise<void> {
 /**
  * Serialize filesystem + SQLite mutations for one AXtory data directory across processes.
  *
- * The lease is re-entrant only inside the async call tree that acquired it. Independent callbacks
- * in the same process still contend, which is required for live receiver capacity accounting.
+ * Re-entry is allowed only while the exact inherited lease token is still active. Independent
+ * callbacks, including detached callbacks created by an operation that has already returned, must
+ * acquire a fresh lease like any other mutation.
  */
 export async function withDataMutationLock<T>(
   dataDirectory: string,
@@ -123,14 +132,20 @@ export async function withDataMutationLock<T>(
 ): Promise<T> {
   const root = resolve(dataDirectory);
   const inherited = heldLocks.getStore();
-  if (inherited?.has(root)) return await operation();
+  const inheritedToken = inherited?.get(root);
+  if (inheritedToken && activeLeases.has(leaseKey(root, inheritedToken))) return await operation();
 
   const { lockDirectory, token } = await acquire(root, waitMs);
-  const locks = new Set(inherited ?? []);
-  locks.add(root);
+  const key = leaseKey(root, token);
+  activeLeases.add(key);
+  const locks = new Map(inherited ?? []);
+  locks.set(root, token);
   try {
     return await heldLocks.run(locks, async () => await operation());
   } finally {
+    // Invalidate async descendants before releasing the filesystem lease. A detached descendant that
+    // wakes during release will contend on the existing lock instead of bypassing it as re-entrant.
+    activeLeases.delete(key);
     await release(lockDirectory, token);
   }
 }
