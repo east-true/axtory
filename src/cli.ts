@@ -14,6 +14,7 @@ import {
   DATA_CLASSIFICATIONS, VERIFICATION_STATUSES, VERIFICATION_TYPES, type DataClassification,
 } from "./core/records.js";
 import { ensureAxtoryDataDirectory } from "./core/data-directory.js";
+import { withDataMutationLock } from "./core/mutation-lock.js";
 import { AxtoryDatabase } from "./core/storage.js";
 import { runRuleSemanticAnalysis } from "./analysis/semantic-pipeline.js";
 import { collectLocalGit } from "./connectors/git/collector.js";
@@ -106,6 +107,11 @@ async function openDataDatabase(path: string): Promise<AxtoryDatabase> {
   return new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
 }
 
+async function withForegroundDataOperation<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const dataDirectory = await ensureAxtoryDataDirectory(resolve(path));
+  return withDataMutationLock(dataDirectory, operation);
+}
+
 function availableValue(value: { status: string; value?: string }, label: string): string {
   if (value.status !== "AVAILABLE" || typeof value.value !== "string") {
     throw new Error(`${label} is unavailable`);
@@ -147,12 +153,12 @@ async function main(args: readonly string[]): Promise<void> {
       } else {
         const dataDirectory = option(args, "--data-dir");
         if (!dataDirectory) throw new Error("collect-codex requires --data-dir and --json-out");
-        const output = await collectCodexHistory(client, discovery, {
+        const output = await withForegroundDataOperation(dataDirectory, () => collectCodexHistory(client, discovery, {
           dataDirectory: resolve(dataDirectory),
           jsonOutputPath: resolve(jsonOutput),
           ...(pageSizeValue !== undefined ? { pageSize: parsePositive(pageSizeValue, "--page-size") } : {}),
           ...(maxPagesValue !== undefined ? { maxPages: parsePositive(maxPagesValue, "--max-pages") } : {}),
-        });
+        }));
         process.stdout.write(renderCodexCollection(output));
       }
     } finally {
@@ -248,16 +254,18 @@ async function main(args: readonly string[]): Promise<void> {
     const baselineMinutes = baselineValue === undefined
       ? null
       : positiveInteger(baselineValue, "--baseline-minutes");
-    const database = await openDataDatabase(dataDirectory);
-    try {
-      database.insertUserAnnotation({
-        id: `annotation_${randomUUID()}`, targetType, targetId, assertion,
-        dataClassification: classification as DataClassification, baselineMinutes,
-        createdAt: new Date().toISOString(),
-      });
-    } finally {
-      database.close();
-    }
+    await withForegroundDataOperation(dataDirectory, async () => {
+      const database = await openDataDatabase(dataDirectory);
+      try {
+        database.insertUserAnnotation({
+          id: `annotation_${randomUUID()}`, targetType, targetId, assertion,
+          dataClassification: classification as DataClassification, baselineMinutes,
+          createdAt: new Date().toISOString(),
+        });
+      } finally {
+        database.close();
+      }
+    });
     process.stdout.write("AXtory user annotation recorded. It does not overwrite source or analysis facts.\n");
     return;
   }
@@ -300,19 +308,21 @@ async function main(args: readonly string[]): Promise<void> {
     if (!DATA_CLASSIFICATIONS.includes(noteClassification as DataClassification)) {
       throw new Error(`--note-classification must be one of ${DATA_CLASSIFICATIONS.join(", ")}`);
     }
-    const database = await openDataDatabase(dataDirectory);
-    try {
-      database.insertVerificationRecord({
-        id: `verification_${randomUUID()}`, analysisRecordId,
-        verificationType: verificationType as typeof VERIFICATION_TYPES[number],
-        status: status as typeof VERIFICATION_STATUSES[number], provenance: "USER_PROVIDED",
-        evidenceIds: options(args, "--evidence-id"), note: option(args, "--note") ?? null,
-        noteClassification: noteClassification as DataClassification,
-        verifiedAt: new Date().toISOString(),
-      });
-    } finally {
-      database.close();
-    }
+    await withForegroundDataOperation(dataDirectory, async () => {
+      const database = await openDataDatabase(dataDirectory);
+      try {
+        database.insertVerificationRecord({
+          id: `verification_${randomUUID()}`, analysisRecordId,
+          verificationType: verificationType as typeof VERIFICATION_TYPES[number],
+          status: status as typeof VERIFICATION_STATUSES[number], provenance: "USER_PROVIDED",
+          evidenceIds: options(args, "--evidence-id"), note: option(args, "--note") ?? null,
+          noteClassification: noteClassification as DataClassification,
+          verifiedAt: new Date().toISOString(),
+        });
+      } finally {
+        database.close();
+      }
+    });
     process.stdout.write("AXtory verification recorded separately from the analysis result.\n");
     return;
   }
@@ -322,10 +332,10 @@ async function main(args: readonly string[]): Promise<void> {
     if (!dataDirectory || !revisionId) {
       throw new Error("analyze-rule requires --data-dir, --revision-id, and --allow-conversation-content");
     }
-    const summary = await runRuleSemanticAnalysis({
+    const summary = await withForegroundDataOperation(dataDirectory, () => runRuleSemanticAnalysis({
       dataDirectory: resolve(dataDirectory), revisionId,
       allowConversationContent: args.includes("--allow-conversation-content"),
-    });
+    }));
     process.stdout.write(`AXtory semantic analysis [INFERRED]: ${summary.assertionsFound} unverified assertions ` +
       `from ${summary.documentsAnalyzed} assistant messages.\n${summary.limitation}\n`);
     return;
@@ -333,7 +343,8 @@ async function main(args: readonly string[]): Promise<void> {
   if (command === "analyze-fork-lineage") {
     const dataDirectory = option(args, "--data-dir");
     if (!dataDirectory) throw new Error("analyze-fork-lineage requires --data-dir");
-    const summary = await runForkLineageAnalysis({ dataDirectory: resolve(dataDirectory) });
+    const summary = await withForegroundDataOperation(dataDirectory,
+      () => runForkLineageAnalysis({ dataDirectory: resolve(dataDirectory) }));
     process.stdout.write(renderForkLineage(summary));
     return;
   }
@@ -341,7 +352,10 @@ async function main(args: readonly string[]): Promise<void> {
     const dataDirectory = option(args, "--data-dir");
     if (!dataDirectory) throw new Error("renormalize requires --data-dir");
     const dryRun = args.includes("--dry-run");
-    const summary = await renormalizeStoredRevisions({ dataDirectory: resolve(dataDirectory), dryRun });
+    const summary = dryRun
+      ? await renormalizeStoredRevisions({ dataDirectory: resolve(dataDirectory), dryRun })
+      : await withForegroundDataOperation(dataDirectory,
+        () => renormalizeStoredRevisions({ dataDirectory: resolve(dataDirectory), dryRun }));
     process.stdout.write(renderRenormalize(summary, dryRun));
     return;
   }
@@ -354,7 +368,7 @@ async function main(args: readonly string[]): Promise<void> {
     const requestedSources = requestedSourceTypes(args);
     const workspaceDirectories = options(args, "--workspace-dir");
     const branches = options(args, "--branch");
-    const output = await generateUsageReport({
+    const output = await withForegroundDataOperation(dataDirectory, () => generateUsageReport({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
       ...(option(args, "--until") ? { until: option(args, "--until")! } : {}),
@@ -362,7 +376,7 @@ async function main(args: readonly string[]): Promise<void> {
       ...(workspaceDirectories.length > 0 ? { workspaceDirectories } : {}),
       ...(branches.length > 0 ? { branches } : {}),
       allowConversationContent: args.includes("--allow-conversation-content"),
-    });
+    }));
     process.stdout.write(renderUsageReport(output));
     return;
   }
@@ -386,11 +400,14 @@ async function main(args: readonly string[]): Promise<void> {
     }
     const jsonOutputPath = option(args, "--json-out");
     const requestedSources = requestedSourceTypes(args);
-    const output = await compareUsageWindows({
+    const runComparison = () => compareUsageWindows({
       dataDirectory: resolve(dataDirectory), earlier, later,
       ...(jsonOutputPath ? { jsonOutputPath: resolve(jsonOutputPath) } : {}),
       ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
     });
+    const output = jsonOutputPath
+      ? await withForegroundDataOperation(dataDirectory, runComparison)
+      : await runComparison();
     process.stdout.write(renderUsageComparison(output));
     return;
   }
@@ -451,12 +468,12 @@ async function main(args: readonly string[]): Promise<void> {
       provider: api.provider, scopeIdentity: api.scopeIdentity, hasCredential,
       supportedKinds: api.supportedKinds,
     });
-    const output = await collectWorkSystem(api, discovery, {
+    const output = await withForegroundDataOperation(dataDirectory, () => collectWorkSystem(api, discovery, {
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(pageSizeValue ? { pageSize: positiveInteger(pageSizeValue, "--page-size") } : {}),
       ...(maxPagesValue ? { maxPages: positiveInteger(maxPagesValue, "--max-pages") } : {}),
       ...(option(args, "--git-revision-id") ? { gitRevisionId: option(args, "--git-revision-id")! } : {}),
-    });
+    }));
     process.stdout.write(renderWorkSystemCollection(output));
     return;
   }
@@ -504,10 +521,10 @@ async function main(args: readonly string[]): Promise<void> {
           : new CursorSourceApi({ executablePath, projectDirectory: resolvedProject });
     }
     const limitValue = option(args, "--limit");
-    const output = await collectAdditionalAiSource(api, discovery, {
+    const output = await withForegroundDataOperation(dataDirectory, () => collectAdditionalAiSource(api, discovery, {
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
       ...(limitValue ? { limit: positiveInteger(limitValue, "--limit") } : {}),
-    });
+    }));
     process.stdout.write(renderAdditionalAiCollection(output));
     return;
   }
@@ -523,14 +540,14 @@ async function main(args: readonly string[]): Promise<void> {
     if (maximumCommits !== undefined && (!Number.isInteger(maximumCommits) || maximumCommits < 1)) {
       throw new Error("--max-commits must be a positive integer");
     }
-    const output = await collectLocalGit({
+    const output = await withForegroundDataOperation(dataDirectory, () => collectLocalGit({
       repositoryDirectory: resolve(repositoryDirectory), dataDirectory: resolve(dataDirectory),
       jsonOutputPath: resolve(jsonOutputPath),
       ...(option(args, "--session-revision-id")
         ? { sessionRevisionId: option(args, "--session-revision-id")! }
         : {}),
       ...(maximumCommits !== undefined ? { maximumCommits } : {}),
-    });
+    }));
     process.stdout.write(`AXtory Local Git: ${output.commitsReturned} commits, ` +
       `${output.correlations} inferred temporal correlations.\n`);
     return;
@@ -539,9 +556,9 @@ async function main(args: readonly string[]): Promise<void> {
     const dataDirectory = option(args, "--data-dir");
     const jsonOutputPath = option(args, "--json-out");
     if (!dataDirectory || !jsonOutputPath) throw new Error("ingest-live requires --data-dir and --json-out");
-    const summary = await ingestLiveSpool({
+    const summary = await withForegroundDataOperation(dataDirectory, () => ingestLiveSpool({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
-    });
+    }));
     process.stdout.write(`AXtory live ingestion: ${summary.ingested} ingested, ${summary.duplicates} duplicates, ` +
       `${summary.failed} failed, ${summary.telemetryFacts} telemetry facts.\n`);
     return;
@@ -584,24 +601,26 @@ async function main(args: readonly string[]): Promise<void> {
       (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65_535))) {
       throw new Error("serve-live requires --data-dir, --settings, a live channel, and explicit confirmation");
     }
-    const receiver = await startLiveReceiver({
-      dataDirectory: resolve(dataDirectory), ...(port !== undefined ? { port } : {}),
+    await withForegroundDataOperation(dataDirectory, async () => {
+      const receiver = await startLiveReceiver({
+        dataDirectory: resolve(dataDirectory), ...(port !== undefined ? { port } : {}),
+      });
+      try {
+        const applied = await applyClaudeLiveConfiguration({
+          settingsPath: resolve(settingsPath), endpoint: receiver.endpoint, token: receiver.token,
+          enableHooks, enableOtel, confirmation,
+        });
+        process.stdout.write(`AXtory live receiver is listening on loopback. Settings backup: ${applied.backupPath}\n` +
+          "Press Ctrl+C to stop. Restore settings with rollback-live when live collection is no longer wanted.\n");
+        await new Promise<void>((resolvePromise) => {
+          const stop = () => resolvePromise();
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+      } finally {
+        await receiver.stop();
+      }
     });
-    try {
-      const applied = await applyClaudeLiveConfiguration({
-        settingsPath: resolve(settingsPath), endpoint: receiver.endpoint, token: receiver.token,
-        enableHooks, enableOtel, confirmation,
-      });
-      process.stdout.write(`AXtory live receiver is listening on loopback. Settings backup: ${applied.backupPath}\n` +
-        "Press Ctrl+C to stop. Restore settings with rollback-live when live collection is no longer wanted.\n");
-      await new Promise<void>((resolvePromise) => {
-        const stop = () => resolvePromise();
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-      });
-    } finally {
-      await receiver.stop();
-    }
     return;
   }
   if (command === "collect-claude") {
@@ -619,13 +638,13 @@ async function main(args: readonly string[]): Promise<void> {
     };
     const discovery = await discoverClaude();
     const api = await loadClaudeHistoryApi();
-    const output = await collectClaudeHistory(api, discovery, {
+    const output = await withForegroundDataOperation(dataDirectory, () => collectClaudeHistory(api, discovery, {
       dataDirectory: resolve(dataDirectory),
       jsonOutputPath: resolve(jsonOutput),
       ...(option(args, "--project-dir") ? { projectDirectory: resolve(option(args, "--project-dir")!) } : {}),
       ...(pageSizeValue !== undefined ? { pageSize: parsePositive(pageSizeValue, "--page-size") } : {}),
       ...(maxPagesValue !== undefined ? { maxPages: parsePositive(maxPagesValue, "--max-pages") } : {}),
-    });
+    }));
     process.stdout.write(renderClaudeCollection(output));
     return;
   }
@@ -638,11 +657,11 @@ async function main(args: readonly string[]): Promise<void> {
   if (!fixture || !dataDirectory || !jsonOutput) {
     throw new Error("collect-fixture requires --fixture, --data-dir, and --json-out");
   }
-  const result = await runWalkingSkeleton({
+  const result = await withForegroundDataOperation(dataDirectory, () => runWalkingSkeleton({
     fixturePath: resolve(fixture),
     dataDirectory: resolve(dataDirectory),
     jsonOutputPath: resolve(jsonOutput),
-  });
+  }));
   process.stdout.write(renderConsole(result.output));
 }
 
