@@ -7,7 +7,7 @@ import { canonicalJson, stableId } from "../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "../core/policy.js";
-import type { NormalizedObservation } from "../core/records.js";
+import type { AnalysisRecord, NormalizedObservation } from "../core/records.js";
 import { AxtoryDatabase } from "../core/storage.js";
 import { LIVE_NORMALIZER_VERSION, normalizeLiveEnvelope } from "./normalizer.js";
 import { BoundedSpool } from "./spool.js";
@@ -28,6 +28,13 @@ export interface LiveIngestionSummary {
     cost: "AVAILABLE" | "NOT_COLLECTED";
     latency: "AVAILABLE" | "NOT_COLLECTED";
   };
+}
+
+function telemetryAvailability(
+  records: readonly AnalysisRecord[],
+  predicate: (record: AnalysisRecord) => boolean,
+): "AVAILABLE" | "NOT_COLLECTED" {
+  return records.some(predicate) ? "AVAILABLE" : "NOT_COLLECTED";
 }
 
 export async function ingestLiveSpool(options: {
@@ -106,18 +113,23 @@ export async function ingestLiveSpool(options: {
       database.transaction(() => database.insertAnalysisRecords(records));
       database.finishAnalysisRun(analysisRunId, "COMPLETED", timestamp());
     }
-    const serialized = JSON.stringify(records);
-    const available = (pattern: RegExp) => pattern.test(serialized) ? "AVAILABLE" as const : "NOT_COLLECTED" as const;
     const summary: LiveIngestionSummary = {
       schemaVersion: "axtory.live-ingestion-output.v1", collectionRunId,
       received: pending.length, ingested, duplicates, failed,
       hookEvents: observations.filter((item) => item.stableKey === "hook-event").length,
       otelObservations: otel.length, telemetryFacts: records.length,
       availability: {
-        tokens: available(/tokens|token\.usage/u),
-        model: available(/model/u),
-        cost: available(/cost/u),
-        latency: available(/latency|duration_ms/u),
+        tokens: telemetryAvailability(records, (record) =>
+          record.key.startsWith("telemetry.event.usage.") ||
+          record.key.startsWith("telemetry.metric.claude_code.token.usage.")),
+        model: telemetryAvailability(records, (record) =>
+          record.key.startsWith("telemetry.event.model.") ||
+          (record.value !== null && typeof record.value === "object" &&
+            typeof (record.value as Record<string, unknown>).model === "string")),
+        cost: telemetryAvailability(records, (record) =>
+          record.key.startsWith("telemetry.event.cost.") ||
+          record.key.startsWith("telemetry.metric.claude_code.cost.usage.")),
+        latency: telemetryAvailability(records, (record) => record.key.startsWith("telemetry.event.latency.")),
       },
     };
     const payloadDigest = await writeJsonAtomically(options.jsonOutputPath, summary);
