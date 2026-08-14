@@ -60,6 +60,13 @@ async function executeInternalDeletion(
       return database.rawObservationsForRevisionIds(revisionIds).filter((item) => allowed.has(item.id));
     })()
     : database.rawObservationsForRevisionIds(revisionIds);
+  const evidenceIdsToRemove = options.mode === "DELETE_RAW_ONLY" || options.mode === "RETENTION"
+    ? unique([
+      ...raw.map((item) => item.id),
+      ...unique(raw.map((item) => item.sourceRevisionId)).flatMap((revisionId) =>
+        database.observationsForRevision(revisionId).map((item) => item.id)),
+    ])
+    : [];
   let normalizedObservationsDeleted = 0;
   let analysisRunsDeleted = 0;
   let rawObservationsDeleted = 0;
@@ -70,7 +77,9 @@ async function executeInternalDeletion(
   database.prepareSecureDeletion();
   database.transaction(() => {
     if (options.mode === "DELETE_RAW_ONLY" || options.mode === "RETENTION") {
-      database.markEvidenceRemovedForRevisionIds(unique(raw.map((item) => item.sourceRevisionId)));
+      // Analysis runs can span several revisions. Only records supported by evidence from a
+      // revision whose raw observation is actually removed should lose their evidence status.
+      database.markEvidenceRemoved(evidenceIdsToRemove);
     } else {
       const derived = database.deleteDerivedForRevisionIds(revisionIds);
       normalizedObservationsDeleted = derived.normalizedObservations;

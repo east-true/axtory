@@ -30,7 +30,12 @@ async function writeDurably(path: string, body: string): Promise<string> {
 }
 
 async function atomicWrite(path: string, body: string): Promise<void> {
-  await rename(await writeDurably(path, body), path);
+  const temporary = await writeDurably(path, body);
+  try {
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 /**
@@ -54,6 +59,9 @@ async function atomicCreate(path: string, body: string): Promise<boolean> {
 }
 
 export class BoundedSpool {
+  // Receiver callbacks can overlap. Capacity accounting and creation must be one critical section.
+  private appendTail: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly root: string,
     private readonly limits = { maximumItems: 10_000, maximumBytes: 256 * 1024 * 1024 },
@@ -70,6 +78,12 @@ export class BoundedSpool {
     return join(this.root, `${id}.json`);
   }
 
+  private serializeAppend<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.appendTail.then(operation);
+    this.appendTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
   async append(input: {
     channel: LiveChannel;
     payload: unknown;
@@ -77,34 +91,36 @@ export class BoundedSpool {
     idempotencyKey?: string;
   }): Promise<{ id: string; duplicate: boolean }> {
     await this.initialize();
-    const payloadBody = canonicalJson(input.payload);
-    const id = stableId("spool", {
-      channel: input.channel,
-      idempotencyKey: input.idempotencyKey ?? randomUUID(),
+    return this.serializeAppend(async () => {
+      const payloadBody = canonicalJson(input.payload);
+      const id = stableId("spool", {
+        channel: input.channel,
+        idempotencyKey: input.idempotencyKey ?? randomUUID(),
+      });
+      const target = this.path(id);
+      try {
+        await stat(target);
+        return { id, duplicate: true };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry));
+      let bytes = 0;
+      for (const entry of entries) bytes += (await stat(join(this.root, entry))).size;
+      const envelope: SpoolEnvelope = {
+        schemaVersion: "axtory.live-spool.v1", id, channel: input.channel,
+        receivedAt: input.receivedAt, payloadDigest: sha256(payloadBody), payload: input.payload,
+        states: [
+          { state: "STARTED", at: input.receivedAt },
+          { state: "RECEIVED", at: input.receivedAt },
+        ],
+      };
+      const body = `${canonicalJson(envelope)}\n`;
+      if (entries.length >= this.limits.maximumItems || bytes + Buffer.byteLength(body) > this.limits.maximumBytes) {
+        throw new Error("live spool capacity exceeded");
+      }
+      return { id, duplicate: !await atomicCreate(target, body) };
     });
-    const target = this.path(id);
-    try {
-      await stat(target);
-      return { id, duplicate: true };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const entries = (await readdir(this.root)).filter((entry) => /^spool_[0-9a-f]{32}\.json$/u.test(entry));
-    let bytes = 0;
-    for (const entry of entries) bytes += (await stat(join(this.root, entry))).size;
-    const envelope: SpoolEnvelope = {
-      schemaVersion: "axtory.live-spool.v1", id, channel: input.channel,
-      receivedAt: input.receivedAt, payloadDigest: sha256(payloadBody), payload: input.payload,
-      states: [
-        { state: "STARTED", at: input.receivedAt },
-        { state: "RECEIVED", at: input.receivedAt },
-      ],
-    };
-    const body = `${canonicalJson(envelope)}\n`;
-    if (entries.length >= this.limits.maximumItems || bytes + Buffer.byteLength(body) > this.limits.maximumBytes) {
-      throw new Error("live spool capacity exceeded");
-    }
-    return { id, duplicate: !await atomicCreate(target, body) };
   }
 
   async listPending(): Promise<SpoolEnvelope[]> {
