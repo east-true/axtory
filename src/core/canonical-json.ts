@@ -8,7 +8,10 @@ function normalize(value: unknown): unknown {
   }
   if (Array.isArray(value)) return value.map(normalize);
   if (typeof value === "object") {
-    const output: Record<string, unknown> = {};
+    // A normal object treats `__proto__` as a prototype setter. Vendor JSON can legitimately contain
+    // that key, and dropping it would make distinct source payloads canonicalize to the same bytes
+    // and therefore the same stable IDs. A null-prototype record keeps every JSON key as data.
+    const output = Object.create(null) as Record<string, unknown>;
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       const item = (value as Record<string, unknown>)[key];
       if (item !== undefined) output[key] = normalize(item);

@@ -228,7 +228,9 @@ export class CodexAppServerClient implements CodexThreadApi {
     if (!threadId) throw new Error("Codex thread/read requires a thread ID");
     await this.initialization;
     const response = object(await this.request("thread/read", { threadId, includeTurns: true }));
-    return validateThread(response.thread);
+    const thread = validateThread(response.thread);
+    if (thread.id !== threadId) throw new Error("Codex App Server returned a different thread");
+    return thread;
   }
 
   async close(): Promise<void> {
