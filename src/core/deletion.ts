@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 
 import { ContentAddressedBlobStore } from "./blob-store.js";
 import { ensureAxtoryDataDirectory } from "./data-directory.js";
+import {
+  completeStagedDeletion, rollbackStagedDeletion, stageDeletionFiles,
+} from "./deletion-staging.js";
 import type { DataClassification } from "./records.js";
 import type { CollectionPolicy } from "./policy.js";
 import { AxtoryDatabase } from "./storage.js";
@@ -67,40 +70,27 @@ async function executeInternalDeletion(
         database.observationsForRevision(revisionId).map((item) => item.id)),
     ])
     : [];
-  let normalizedObservationsDeleted = 0;
-  let analysisRunsDeleted = 0;
-  let rawObservationsDeleted = 0;
-  let sourceDeleted = 0;
   const sourceExternalKey = options.mode === "DELETE_SOURCE_SESSION"
     ? database.externalKeyForSourceObject(options.target.sourceObjectId!)
     : null;
-  database.prepareSecureDeletion();
-  database.transaction(() => {
-    if (options.mode === "DELETE_RAW_ONLY" || options.mode === "RETENTION") {
-      // Analysis runs can span several revisions. Only records supported by evidence from a
-      // revision whose raw observation is actually removed should lose their evidence status.
-      database.markEvidenceRemoved(evidenceIdsToRemove);
-    } else {
-      const derived = database.deleteDerivedForRevisionIds(revisionIds);
-      normalizedObservationsDeleted = derived.normalizedObservations;
-      analysisRunsDeleted = derived.analysisRuns;
-    }
-    if (options.mode === "DELETE_SOURCE_SESSION") {
-      sourceDeleted = database.deleteSourceObject(options.target.sourceObjectId!);
-      rawObservationsDeleted = raw.length;
-    } else {
-      rawObservationsDeleted = database.deleteRawObservations(raw.map((item) => item.id));
-    }
-  });
-  if (options.mode === "DELETE_SOURCE_SESSION" && sourceDeleted === 0) {
+  if (options.mode === "DELETE_SOURCE_SESSION" && sourceExternalKey === null) {
     throw new Error("source object does not exist");
   }
 
-  let blobsDeleted = 0;
-  for (const reference of unique(raw.map((item) => item.payloadReference))) {
-    if (database.rawReferenceCount(reference) === 0 && await blobs.remove(reference)) blobsDeleted += 1;
+  // A content-addressed blob can be shared by several raw observations. Stage it only when every
+  // database reference to that blob is part of this deletion; otherwise another retained revision
+  // still owns the file.
+  const targetedReferenceCounts = new Map<string, number>();
+  for (const item of raw) {
+    targetedReferenceCounts.set(item.payloadReference, (targetedReferenceCounts.get(item.payloadReference) ?? 0) + 1);
   }
-  let spoolEntriesDeleted = 0;
+  const blobReferences = [...targetedReferenceCounts.entries()]
+    .filter(([reference, targeted]) => database.rawReferenceCount(reference) === targeted)
+    .map(([reference]) => reference)
+    .sort();
+
+  const spool = new BoundedSpool(join(options.dataDirectory, "spool"));
+  let spoolPaths: string[] = [];
   if (options.mode === "DELETE_SOURCE_SESSION" && sourceExternalKey) {
     const sessionIdentity = sha256(sourceExternalKey);
     const hasSession = (value: unknown): boolean => {
@@ -112,44 +102,101 @@ async function executeInternalDeletion(
           sha256((item.value as { stringValue: string }).stringValue) === sessionIdentity)) return true;
       return Object.values(item).some(hasSession);
     };
-    spoolEntriesDeleted = await new BoundedSpool(join(options.dataDirectory, "spool"))
-      .deleteWhere((envelope: SpoolEnvelope) => hasSession(envelope.payload));
+    spoolPaths = await spool.matchingPaths((envelope) => hasSession(envelope.payload));
   } else if (options.spoolDeletePredicate) {
-    spoolEntriesDeleted = await new BoundedSpool(join(options.dataDirectory, "spool"))
-      .deleteWhere(options.spoolDeletePredicate);
+    spoolPaths = await spool.matchingPaths(options.spoolDeletePredicate);
   }
-  const annotationsDeleted = options.annotationIds === undefined
-    ? 0
-    : database.transaction(() => database.deleteAnnotations(options.annotationIds!));
-  const verificationNotesCleared = options.verificationNoteIds === undefined
-    ? 0
-    : database.transaction(() => database.clearVerificationNotes(options.verificationNoteIds!));
-  const result: DeletionResult = {
-    mode: options.mode,
-    rawObservationsDeleted,
-    normalizedObservationsDeleted,
-    analysisRunsDeleted,
-    blobsDeleted,
-    spoolEntriesDeleted,
-    annotationsDeleted,
-    verificationNotesCleared,
-  };
-  database.recordDeletion({
-    id: `deletion_${options.randomId()}`,
-    mode: options.mode,
-    target: options.target,
-    status: "COMPLETED",
-    rawObservationsDeleted: result.rawObservationsDeleted,
-    normalizedObservationsDeleted: result.normalizedObservationsDeleted,
-    analysisRunsDeleted: result.analysisRunsDeleted,
-    blobsDeleted: result.blobsDeleted,
-    spoolEntriesDeleted: result.spoolEntriesDeleted,
-    annotationsDeleted: result.annotationsDeleted,
-    verificationNotesCleared: result.verificationNotesCleared,
-    executedAt: options.now().toISOString(),
-  });
-  database.finalizeSecureDeletion();
-  return result;
+
+  const deletionId = `deletion_${options.randomId()}`;
+  const executedAt = options.now().toISOString();
+  const filesToStage = [
+    ...blobReferences.map((reference) => blobs.deletionPath(reference)),
+    ...spoolPaths,
+  ];
+  let staged = false;
+  let committed = false;
+  try {
+    await stageDeletionFiles({
+      dataDirectory: options.dataDirectory,
+      deletionId,
+      paths: filesToStage,
+      createdAt: executedAt,
+    });
+    staged = true;
+
+    let normalizedObservationsDeleted = 0;
+    let analysisRunsDeleted = 0;
+    let rawObservationsDeleted = 0;
+    let annotationsDeleted = 0;
+    let verificationNotesCleared = 0;
+    const blobsDeleted = blobReferences.length;
+    const spoolEntriesDeleted = spoolPaths.length;
+
+    database.prepareSecureDeletion();
+    database.transaction(() => {
+      if (options.mode === "DELETE_RAW_ONLY" || options.mode === "RETENTION") {
+        database.markEvidenceRemoved(evidenceIdsToRemove);
+      } else {
+        const derived = database.deleteDerivedForRevisionIds(revisionIds);
+        normalizedObservationsDeleted = derived.normalizedObservations;
+        analysisRunsDeleted = derived.analysisRuns;
+      }
+      if (options.mode === "DELETE_SOURCE_SESSION") {
+        const sourceDeleted = database.deleteSourceObject(options.target.sourceObjectId!);
+        if (sourceDeleted === 0) throw new Error("source object does not exist");
+        rawObservationsDeleted = raw.length;
+      } else {
+        rawObservationsDeleted = database.deleteRawObservations(raw.map((item) => item.id));
+      }
+      if (options.annotationIds !== undefined) {
+        annotationsDeleted = database.deleteAnnotations(options.annotationIds);
+      }
+      if (options.verificationNoteIds !== undefined) {
+        verificationNotesCleared = database.clearVerificationNotes(options.verificationNoteIds);
+      }
+      database.recordDeletion({
+        id: deletionId,
+        mode: options.mode,
+        target: options.target,
+        status: "COMPLETED",
+        rawObservationsDeleted,
+        normalizedObservationsDeleted,
+        analysisRunsDeleted,
+        blobsDeleted,
+        spoolEntriesDeleted,
+        annotationsDeleted,
+        verificationNotesCleared,
+        executedAt,
+      });
+    });
+    committed = true;
+
+    // secure_delete applies to the transaction itself. Checkpoint/VACUUM closes the remaining SQLite
+    // deletion window before staged raw files are finally discarded. If this process dies after the
+    // DB commit, the durable deletion_run is the commit marker used by startup reconciliation.
+    database.finalizeSecureDeletion();
+    await completeStagedDeletion(options.dataDirectory, deletionId);
+
+    return {
+      mode: options.mode,
+      rawObservationsDeleted,
+      normalizedObservationsDeleted,
+      analysisRunsDeleted,
+      blobsDeleted,
+      spoolEntriesDeleted,
+      annotationsDeleted,
+      verificationNotesCleared,
+    };
+  } catch (error) {
+    if (staged && !committed) {
+      try {
+        await rollbackStagedDeletion(options.dataDirectory, deletionId);
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "deletion failed and staged files could not be restored");
+      }
+    }
+    throw error;
+  }
 }
 
 export async function executeSelectiveDeletion(options: {
@@ -196,8 +243,6 @@ export async function applyRetention(options: {
   const database = new AxtoryDatabase(join(dataDirectory, "axtory.sqlite3"));
   try {
     const classifications = Object.entries(options.policy.classifications);
-    // Reject an invalid policy before persisting it. A failed retention invocation must not leave
-    // behind a policy version that was never valid enough to execute.
     for (const [classification, rule] of classifications) {
       if (rule.retentionDays !== null &&
         (!Number.isInteger(rule.retentionDays) || rule.retentionDays < 0)) {
