@@ -183,12 +183,6 @@ export async function reconcileDeletionStaging(dataDirectory: string): Promise<n
   if (deletionIds.length === 0) return 0;
 
   const manifests = await Promise.all(deletionIds.map((id) => loadManifest(root, id)));
-  for (const manifest of manifests) {
-    if (processAlive(manifest.ownerPid)) {
-      throw new Error("an AXtory deletion is still in progress for this data directory");
-    }
-  }
-
   const databasePath = join(root, "axtory.sqlite3");
   let database: DatabaseSync | null = null;
   let hasDeletionTable = false;
@@ -208,6 +202,14 @@ export async function reconcileDeletionStaging(dataDirectory: string): Promise<n
       (row ? committed : uncommitted).push(manifest);
     }
 
+    // Only an uncommitted manifest can represent an operation that is still between staging and its
+    // DB commit. A committed row is authoritative even if the process that created it is still alive
+    // after a finalization error, so a retry in that same process may safely finish cleanup.
+    for (const manifest of uncommitted) {
+      if (processAlive(manifest.ownerPid)) {
+        throw new Error("an AXtory deletion is still in progress for this data directory");
+      }
+    }
     for (const manifest of uncommitted) await rollbackManifest(root, manifest);
     if (committed.length > 0) {
       if (!database) throw new Error("committed deletion staging exists without its AXtory database");
