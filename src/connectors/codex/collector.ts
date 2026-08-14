@@ -201,7 +201,8 @@ export async function collectCodexHistory(
       inputRevisionIds: revisionIds,
       startedAt: timestamp(),
     });
-    const records = analyzeFacts(analysisRunId, projections).map((record) => ({
+    const sourceSetComplete = listed.coverage === "COMPLETE_FOR_RETURNED_VIEW" && unreadableThreads === 0;
+    const records = analyzeFacts(analysisRunId, projections, { sourceSetComplete }).map((record) => ({
       ...record,
       evidenceStatus: record.evidenceIds.some((id) => projections.some((projection) =>
         revisionsWithoutRawEvidence.has(projection.sourceRevisionId) &&

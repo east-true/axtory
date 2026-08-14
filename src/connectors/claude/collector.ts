@@ -176,7 +176,9 @@ export async function collectClaudeHistory(
       inputRevisionIds: revisionIds,
       startedAt: timestamp(),
     });
-    const records = analyzeFacts(analysisRunId, projections).map((record) => ({
+    const records = analyzeFacts(analysisRunId, projections, {
+      sourceSetComplete: sessions.coverage === "COMPLETE_FOR_RETURNED_VIEW",
+    }).map((record) => ({
       ...record,
       evidenceStatus: record.evidenceIds.some((id) => projections.some((projection) =>
         revisionsWithoutRawEvidence.has(projection.sourceRevisionId) &&

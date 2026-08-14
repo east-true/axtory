@@ -10,8 +10,9 @@ export function analyzeAdditionalAiFacts(
   analysisRunId: string,
   provider: AdditionalAiProvider,
   projections: readonly SessionProjection[],
+  sourceSetComplete = true,
 ): AnalysisRecord[] {
-  const records = analyzeFacts(analysisRunId, projections);
+  const records = analyzeFacts(analysisRunId, projections, { sourceSetComplete });
   // Providers with a documented machine-readable history keep the message and tool counts the
   // shared fact analyzer produced. The rest cannot support them and say so with a reason.
   if (provider === "OPENCODE" || provider === "KIMI_CODE") return records;

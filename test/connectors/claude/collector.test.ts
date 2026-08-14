@@ -11,23 +11,17 @@ import { AxtoryDatabase } from "../../../src/core/storage.js";
 
 const discovery: ClaudeDiscovery = {
   environment: {
-    id: "environment",
-    type: "LINUX",
-    os: "linux",
-    architecture: "x64",
+    id: "environment", type: "LINUX", os: "linux", architecture: "x64",
     homeDirectory: { status: "AVAILABLE", value: "/synthetic-home" },
   },
   sourceProfile: {
-    id: "profile",
-    sourceType: "CLAUDE_CODE",
-    environmentId: "environment",
+    id: "profile", sourceType: "CLAUDE_CODE", environmentId: "environment",
     dataRoot: { status: "AVAILABLE", value: "/synthetic-root" },
     executablePath: { status: "AVAILABLE", value: "/synthetic-bin/claude" },
     activeVersion: { status: "AVAILABLE", value: "1.2.3" },
   },
   capabilityAssessment: {
-    sourceProfileId: "profile",
-    assessedAt: "2026-08-09T00:00:00.000Z",
+    sourceProfileId: "profile", assessedAt: "2026-08-09T00:00:00.000Z",
     capabilities: [
       { key: "claude.installation", availability: "AVAILABLE", evidence: ["synthetic"] },
       { key: "claude.data_root", availability: "AVAILABLE", evidence: ["synthetic"] },
@@ -89,11 +83,10 @@ test("official history collector is incremental and excludes content from output
     assert.equal(second.coverage, "PARTIAL_PAGINATION");
     assert.equal(messageReadCount, messageReadsAfterFirstRun);
     assert.deepEqual(second.metrics.filter((item) => item.availability === "AVAILABLE")
-      .map((item) => [item.key, item.value]), [
-      ["session.count", 2],
-    ]);
+      .map((item) => [item.key, item.value]), []);
     assert.deepEqual(second.metrics.filter((item) => item.availability === "PARTIAL")
       .map((item) => [item.key, item.value]), [
+      ["session.count", 2],
       ["message.count", 3],
       ["tool.invocation.count", 1],
     ]);

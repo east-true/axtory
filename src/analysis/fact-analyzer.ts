@@ -3,11 +3,17 @@ import type { AnalysisRecord } from "../core/records.js";
 import type { SessionProjection } from "../projections/session.js";
 import { METRIC_CATALOG } from "./metric-catalog.js";
 
-export const FACT_ANALYZER_VERSION = "fact-counts/1";
+export const FACT_ANALYZER_VERSION = "fact-counts/2";
+
+export interface FactCoverageContext {
+  /** False when source enumeration omitted one or more sessions/threads from the analyzed set. */
+  sourceSetComplete: boolean;
+}
 
 export function analyzeFacts(
   analysisRunId: string,
   projections: readonly SessionProjection[],
+  coverage: FactCoverageContext = { sourceSetComplete: true },
 ): AnalysisRecord[] {
   const flatten = (select: (projection: SessionProjection) => readonly string[]) =>
     projections.flatMap((projection) => select(projection));
@@ -22,7 +28,14 @@ export function analyzeFacts(
       affectedByContentCoverage: true },
   ] as const;
   const available = definitions.map(({ definition, evidence, affectedByContentCoverage }) => {
-    const partial = affectedByContentCoverage && partialContentView;
+    const partialSourceSet = !coverage.sourceSetComplete;
+    const partialContent = affectedByContentCoverage && partialContentView;
+    const partial = partialSourceSet || partialContent;
+    const reason = partialSourceSet
+      ? "Source enumeration is partial, so this count covers only the returned source set."
+      : partialContent
+        ? "One or more session views are partial, so this count covers only the returned evidence."
+        : null;
     return {
       id: stableId("analysis", { analysisRunId, key: definition.key }),
       analysisRunId,
@@ -32,9 +45,7 @@ export function analyzeFacts(
       value: evidence.length,
       unit: definition.unit,
       availability: partial ? "PARTIAL" : "AVAILABLE",
-      reason: partial
-        ? "One or more session views are partial, so this count covers only the returned evidence."
-        : null,
+      reason,
       evidenceIds: evidence,
       evidenceStatus: "PRESENT",
     } satisfies AnalysisRecord;
