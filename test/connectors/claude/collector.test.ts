@@ -91,6 +91,9 @@ test("official history collector is incremental and excludes content from output
     assert.deepEqual(second.metrics.filter((item) => item.availability === "AVAILABLE")
       .map((item) => [item.key, item.value]), [
       ["session.count", 2],
+    ]);
+    assert.deepEqual(second.metrics.filter((item) => item.availability === "PARTIAL")
+      .map((item) => [item.key, item.value]), [
       ["message.count", 3],
       ["tool.invocation.count", 1],
     ]);
@@ -140,6 +143,7 @@ test("a session modified during collection is not reported as complete", async (
     });
     assert.equal(output.coverage, "PARTIAL_SOURCE_CHANGED");
     assert.equal(output.sessions.sourceChangedViews, 1);
+    assert.equal(output.metrics.find((item) => item.key === "message.count")?.availability, "PARTIAL");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

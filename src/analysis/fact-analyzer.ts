@@ -11,12 +11,18 @@ export function analyzeFacts(
 ): AnalysisRecord[] {
   const flatten = (select: (projection: SessionProjection) => readonly string[]) =>
     projections.flatMap((projection) => select(projection));
+  const partialContentView = projections.some((projection) =>
+    projection.messageCoverage !== "COMPLETE_FOR_RETURNED_VIEW");
   const definitions = [
-    { definition: METRIC_CATALOG["session.count"], evidence: flatten((item) => item.sessionEvidenceIds) },
-    { definition: METRIC_CATALOG["message.count"], evidence: flatten((item) => item.messageEvidenceIds) },
-    { definition: METRIC_CATALOG["tool.invocation.count"], evidence: flatten((item) => item.toolInvocationEvidenceIds) },
+    { definition: METRIC_CATALOG["session.count"], evidence: flatten((item) => item.sessionEvidenceIds),
+      affectedByContentCoverage: false },
+    { definition: METRIC_CATALOG["message.count"], evidence: flatten((item) => item.messageEvidenceIds),
+      affectedByContentCoverage: true },
+    { definition: METRIC_CATALOG["tool.invocation.count"], evidence: flatten((item) => item.toolInvocationEvidenceIds),
+      affectedByContentCoverage: true },
   ] as const;
-  const available = definitions.map(({ definition, evidence }) => {
+  const available = definitions.map(({ definition, evidence, affectedByContentCoverage }) => {
+    const partial = affectedByContentCoverage && partialContentView;
     return {
       id: stableId("analysis", { analysisRunId, key: definition.key }),
       analysisRunId,
@@ -25,8 +31,10 @@ export function analyzeFacts(
       derivation: "CALCULATED",
       value: evidence.length,
       unit: definition.unit,
-      availability: "AVAILABLE",
-      reason: null,
+      availability: partial ? "PARTIAL" : "AVAILABLE",
+      reason: partial
+        ? "One or more session views are partial, so this count covers only the returned evidence."
+        : null,
       evidenceIds: evidence,
       evidenceStatus: "PRESENT",
     } satisfies AnalysisRecord;

@@ -138,6 +138,7 @@ export async function renormalizeStoredRevisions(options: {
     const renormalizedRevisionIds: string[] = [];
     let alreadyCurrent = 0;
     let observationsReplaced = 0;
+    let analysisRecordsInvalidated = 0;
     let rawEvidenceUnavailable = 0;
 
     for (const revision of revisions) {
@@ -180,18 +181,17 @@ export async function renormalizeStoredRevisions(options: {
       const result = database.replaceObservations(revision.revisionId, observations, current);
       observationsReplaced += result.inserted;
       renormalizedRevisionIds.push(revision.revisionId);
+      // Invalidate each successfully recomputed revision immediately. If a later revision is corrupt
+      // and aborts the pass, analyses built on work already replaced must not remain PRESENT.
+      analysisRecordsInvalidated += database.markEvidenceInvalidatedForRevisionIds([revision.revisionId]);
     }
-
-    const analysisRecordsInvalidated = options.dryRun
-      ? 0
-      : database.markEvidenceInvalidatedForRevisionIds(renormalizedRevisionIds);
 
     return {
       revisionsScanned: revisions.length,
       revisionsAlreadyCurrent: alreadyCurrent,
       revisionsRenormalized: renormalizedRevisionIds.length,
       observationsReplaced,
-      analysisRecordsInvalidated,
+      analysisRecordsInvalidated: options.dryRun ? 0 : analysisRecordsInvalidated,
       unsupported: [...unsupported.values()],
       rawEvidenceUnavailable,
     };
