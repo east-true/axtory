@@ -54,7 +54,8 @@ export async function collectLocalGit(options: {
     const sourceObjectId = stableId("source", { sourceType: "LOCAL_GIT", key: snapshot.repositoryIdentity });
     const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
     const persistedAt = timestamp();
-    const { created: revisionCreated } = persistCollectedRevision(database, {
+    const { created: revisionCreated } = await persistCollectedRevision(database, {
+      dataDirectory,
       collectionRunId,
       sourceObject: { id: sourceObjectId, sourceType: "LOCAL_GIT", externalKey: snapshot.repositoryIdentity },
       revision: {
