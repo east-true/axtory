@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { canonicalJson, sha256, stableId } from "../core/canonical-json.js";
 import { withDataMutationLock } from "../core/mutation-lock.js";
@@ -95,7 +95,7 @@ export class BoundedSpool {
   }
 
   private mutationRoot(): string {
-    return dirname(this.root);
+    return basename(this.root) === "spool" ? dirname(this.root) : this.root;
   }
 
   private path(id: string): string {
