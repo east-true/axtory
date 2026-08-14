@@ -153,11 +153,13 @@ async function main(args: readonly string[]): Promise<void> {
       } else {
         const dataDirectory = option(args, "--data-dir");
         if (!dataDirectory) throw new Error("collect-codex requires --data-dir and --json-out");
+        const pageSize = pageSizeValue === undefined ? undefined : parsePositive(pageSizeValue, "--page-size");
+        const maxPages = maxPagesValue === undefined ? undefined : parsePositive(maxPagesValue, "--max-pages");
         const output = await withForegroundDataOperation(dataDirectory, () => collectCodexHistory(client, discovery, {
           dataDirectory: resolve(dataDirectory),
           jsonOutputPath: resolve(jsonOutput),
-          ...(pageSizeValue !== undefined ? { pageSize: parsePositive(pageSizeValue, "--page-size") } : {}),
-          ...(maxPagesValue !== undefined ? { maxPages: parsePositive(maxPagesValue, "--max-pages") } : {}),
+          ...(pageSize !== undefined ? { pageSize } : {}),
+          ...(maxPages !== undefined ? { maxPages } : {}),
         }));
         process.stdout.write(renderCodexCollection(output));
       }
@@ -308,6 +310,8 @@ async function main(args: readonly string[]): Promise<void> {
     if (!DATA_CLASSIFICATIONS.includes(noteClassification as DataClassification)) {
       throw new Error(`--note-classification must be one of ${DATA_CLASSIFICATIONS.join(", ")}`);
     }
+    const evidenceIds = options(args, "--evidence-id");
+    const note = option(args, "--note") ?? null;
     await withForegroundDataOperation(dataDirectory, async () => {
       const database = await openDataDatabase(dataDirectory);
       try {
@@ -315,7 +319,7 @@ async function main(args: readonly string[]): Promise<void> {
           id: `verification_${randomUUID()}`, analysisRecordId,
           verificationType: verificationType as typeof VERIFICATION_TYPES[number],
           status: status as typeof VERIFICATION_STATUSES[number], provenance: "USER_PROVIDED",
-          evidenceIds: options(args, "--evidence-id"), note: option(args, "--note") ?? null,
+          evidenceIds, note,
           noteClassification: noteClassification as DataClassification,
           verifiedAt: new Date().toISOString(),
         });
@@ -362,6 +366,8 @@ async function main(args: readonly string[]): Promise<void> {
   if (command === "report-usage") {
     const dataDirectory = option(args, "--data-dir");
     const jsonOutputPath = option(args, "--json-out");
+    const since = option(args, "--since");
+    const until = option(args, "--until");
     if (!dataDirectory || !jsonOutputPath) {
       throw new Error("report-usage requires --data-dir and --json-out");
     }
@@ -370,8 +376,8 @@ async function main(args: readonly string[]): Promise<void> {
     const branches = options(args, "--branch");
     const output = await withForegroundDataOperation(dataDirectory, () => generateUsageReport({
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
-      ...(option(args, "--since") ? { since: option(args, "--since")! } : {}),
-      ...(option(args, "--until") ? { until: option(args, "--until")! } : {}),
+      ...(since ? { since } : {}),
+      ...(until ? { until } : {}),
       ...(requestedSources.length > 0 ? { sourceTypes: requestedSources } : {}),
       ...(workspaceDirectories.length > 0 ? { workspaceDirectories } : {}),
       ...(branches.length > 0 ? { branches } : {}),
@@ -464,15 +470,18 @@ async function main(args: readonly string[]): Promise<void> {
     }
     const pageSizeValue = option(args, "--page-size");
     const maxPagesValue = option(args, "--max-pages");
+    const gitRevisionId = option(args, "--git-revision-id");
+    const pageSize = pageSizeValue ? positiveInteger(pageSizeValue, "--page-size") : undefined;
+    const maxPages = maxPagesValue ? positiveInteger(maxPagesValue, "--max-pages") : undefined;
     const discovery = discoverWorkSystem({
       provider: api.provider, scopeIdentity: api.scopeIdentity, hasCredential,
       supportedKinds: api.supportedKinds,
     });
     const output = await withForegroundDataOperation(dataDirectory, () => collectWorkSystem(api, discovery, {
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
-      ...(pageSizeValue ? { pageSize: positiveInteger(pageSizeValue, "--page-size") } : {}),
-      ...(maxPagesValue ? { maxPages: positiveInteger(maxPagesValue, "--max-pages") } : {}),
-      ...(option(args, "--git-revision-id") ? { gitRevisionId: option(args, "--git-revision-id")! } : {}),
+      ...(pageSize !== undefined ? { pageSize } : {}),
+      ...(maxPages !== undefined ? { maxPages } : {}),
+      ...(gitRevisionId ? { gitRevisionId } : {}),
     }));
     process.stdout.write(renderWorkSystemCollection(output));
     return;
@@ -496,12 +505,11 @@ async function main(args: readonly string[]): Promise<void> {
     if (provider !== "AIDER" && option(args, "--history-file")) {
       throw new Error("--history-file is supported only for Aider");
     }
+    const kimiHome = option(args, "--kimi-home");
     const discovery = await discoverAdditionalAiSource(provider, {
       projectDirectory: resolvedProject,
       ...(provider === "AIDER" ? { historyFile: resolve(historyFile) } : {}),
-      ...(provider === "KIMI_CODE" && option(args, "--kimi-home")
-        ? { sessionStore: resolve(option(args, "--kimi-home")!) }
-        : {}),
+      ...(provider === "KIMI_CODE" && kimiHome ? { sessionStore: resolve(kimiHome) } : {}),
     });
     let api: AdditionalAiSourceApi;
     if (provider === "AIDER") {
@@ -510,7 +518,7 @@ async function main(args: readonly string[]): Promise<void> {
       // Kimi Code is read from its documented session store, so no executable is required.
       api = new KimiCodeSourceApi({
         projectDirectory: resolvedProject,
-        ...(option(args, "--kimi-home") ? { home: resolve(option(args, "--kimi-home")!) } : {}),
+        ...(kimiHome ? { home: resolve(kimiHome) } : {}),
       });
     } else {
       const executablePath = availableValue(discovery.sourceProfile.executablePath, `${provider} executable`);
@@ -521,9 +529,10 @@ async function main(args: readonly string[]): Promise<void> {
           : new CursorSourceApi({ executablePath, projectDirectory: resolvedProject });
     }
     const limitValue = option(args, "--limit");
+    const limit = limitValue ? positiveInteger(limitValue, "--limit") : undefined;
     const output = await withForegroundDataOperation(dataDirectory, () => collectAdditionalAiSource(api, discovery, {
       dataDirectory: resolve(dataDirectory), jsonOutputPath: resolve(jsonOutputPath),
-      ...(limitValue ? { limit: positiveInteger(limitValue, "--limit") } : {}),
+      ...(limit !== undefined ? { limit } : {}),
     }));
     process.stdout.write(renderAdditionalAiCollection(output));
     return;
@@ -536,6 +545,7 @@ async function main(args: readonly string[]): Promise<void> {
       throw new Error("collect-git requires --repo-dir, --data-dir, and --json-out");
     }
     const maximumCommitsValue = option(args, "--max-commits");
+    const sessionRevisionId = option(args, "--session-revision-id");
     const maximumCommits = maximumCommitsValue === undefined ? undefined : Number(maximumCommitsValue);
     if (maximumCommits !== undefined && (!Number.isInteger(maximumCommits) || maximumCommits < 1)) {
       throw new Error("--max-commits must be a positive integer");
@@ -543,9 +553,7 @@ async function main(args: readonly string[]): Promise<void> {
     const output = await withForegroundDataOperation(dataDirectory, () => collectLocalGit({
       repositoryDirectory: resolve(repositoryDirectory), dataDirectory: resolve(dataDirectory),
       jsonOutputPath: resolve(jsonOutputPath),
-      ...(option(args, "--session-revision-id")
-        ? { sessionRevisionId: option(args, "--session-revision-id")! }
-        : {}),
+      ...(sessionRevisionId ? { sessionRevisionId } : {}),
       ...(maximumCommits !== undefined ? { maximumCommits } : {}),
     }));
     process.stdout.write(`AXtory Local Git: ${output.commitsReturned} commits, ` +
@@ -629,6 +637,7 @@ async function main(args: readonly string[]): Promise<void> {
     if (!dataDirectory || !jsonOutput) {
       throw new Error("collect-claude requires --data-dir and --json-out");
     }
+    const projectDirectoryValue = option(args, "--project-dir");
     const pageSizeValue = option(args, "--page-size");
     const maxPagesValue = option(args, "--max-pages");
     const parsePositive = (value: string, name: string): number => {
@@ -636,14 +645,17 @@ async function main(args: readonly string[]): Promise<void> {
       if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} must be a positive integer`);
       return parsed;
     };
+    const projectDirectory = projectDirectoryValue ? resolve(projectDirectoryValue) : undefined;
+    const pageSize = pageSizeValue === undefined ? undefined : parsePositive(pageSizeValue, "--page-size");
+    const maxPages = maxPagesValue === undefined ? undefined : parsePositive(maxPagesValue, "--max-pages");
     const discovery = await discoverClaude();
     const api = await loadClaudeHistoryApi();
     const output = await withForegroundDataOperation(dataDirectory, () => collectClaudeHistory(api, discovery, {
       dataDirectory: resolve(dataDirectory),
       jsonOutputPath: resolve(jsonOutput),
-      ...(option(args, "--project-dir") ? { projectDirectory: resolve(option(args, "--project-dir")!) } : {}),
-      ...(pageSizeValue !== undefined ? { pageSize: parsePositive(pageSizeValue, "--page-size") } : {}),
-      ...(maxPagesValue !== undefined ? { maxPages: parsePositive(maxPagesValue, "--max-pages") } : {}),
+      ...(projectDirectory ? { projectDirectory } : {}),
+      ...(pageSize !== undefined ? { pageSize } : {}),
+      ...(maxPages !== undefined ? { maxPages } : {}),
     }));
     process.stdout.write(renderClaudeCollection(output));
     return;
