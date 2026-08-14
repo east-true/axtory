@@ -1,4 +1,4 @@
-import { open, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { open, mkdir, readFile, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -93,6 +93,14 @@ async function loadManifest(dataDirectory: string, deletionId: string): Promise<
   return manifest;
 }
 
+async function removeEmptyStagingParent(dataDirectory: string): Promise<void> {
+  try {
+    await rmdir(join(dataDirectory, STAGING_DIRECTORY));
+  } catch (error) {
+    if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+  }
+}
+
 async function rollbackManifest(dataDirectory: string, manifest: StagedDeletionManifest): Promise<void> {
   for (const entry of [...manifest.entries].reverse()) {
     const original = safeResolve(dataDirectory, entry.originalRelativePath);
@@ -103,6 +111,7 @@ async function rollbackManifest(dataDirectory: string, manifest: StagedDeletionM
     await rename(staged, original);
   }
   await rm(join(dataDirectory, STAGING_DIRECTORY, manifest.deletionId), { recursive: true, force: true });
+  await removeEmptyStagingParent(dataDirectory);
 }
 
 export async function stageDeletionFiles(options: {
@@ -150,12 +159,9 @@ export async function rollbackStagedDeletion(dataDirectory: string, deletionId: 
 }
 
 export async function completeStagedDeletion(dataDirectory: string, deletionId: string): Promise<void> {
-  await rm(join(resolve(dataDirectory), STAGING_DIRECTORY, deletionId), { recursive: true, force: true });
-  try {
-    await rm(join(resolve(dataDirectory), STAGING_DIRECTORY), { recursive: false, force: false });
-  } catch (error) {
-    if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
-  }
+  const root = resolve(dataDirectory);
+  await rm(join(root, STAGING_DIRECTORY, deletionId), { recursive: true, force: true });
+  await removeEmptyStagingParent(root);
 }
 
 function processAlive(pid: number): boolean {
@@ -180,7 +186,10 @@ export async function reconcileDeletionStaging(dataDirectory: string): Promise<n
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
     throw error;
   }
-  if (deletionIds.length === 0) return 0;
+  if (deletionIds.length === 0) {
+    await removeEmptyStagingParent(root);
+    return 0;
+  }
 
   const manifests = await Promise.all(deletionIds.map((id) => loadManifest(root, id)));
   const databasePath = join(root, "axtory.sqlite3");
