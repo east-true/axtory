@@ -167,7 +167,12 @@ export async function collectAdditionalAiSource(
       analyzerVersion: ADDITIONAL_AI_FACT_ANALYZER_VERSION,
       inputRevisionIds: revisionIds, startedAt: timestamp(),
     });
-    const records = analyzeAdditionalAiFacts(analysisRunId, api.provider, projections).map((record) => ({
+    const records = analyzeAdditionalAiFacts(
+      analysisRunId,
+      api.provider,
+      projections,
+      listed.coverage !== "PARTIAL_LIMIT",
+    ).map((record) => ({
       ...record,
       evidenceStatus: record.evidenceIds.some((id) => projections.some((projection) =>
         missingRawRevisions.has(projection.sourceRevisionId) &&
