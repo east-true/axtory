@@ -7,6 +7,7 @@ import { canonicalJson, stableId } from "../../core/canonical-json.js";
 import { ensureAxtoryDataDirectory } from "../../core/data-directory.js";
 import { OUTPUT_POLICY_VERSION, writeJsonAtomically } from "../../core/output.js";
 import { DEFAULT_LOCAL_COLLECTION_POLICY } from "../../core/policy.js";
+import { persistCollectedRevision } from "../../core/revision-persistence.js";
 import { AxtoryDatabase } from "../../core/storage.js";
 import { readLocalGitSnapshot, type GitCommandRunner } from "./local-git.js";
 import { GIT_NORMALIZER_VERSION, normalizeLocalGitSnapshot } from "./normalizer.js";
@@ -52,19 +53,21 @@ export async function collectLocalGit(options: {
     const blob = await new ContentAddressedBlobStore(join(dataDirectory, "blobs")).put(bytes);
     const sourceObjectId = stableId("source", { sourceType: "LOCAL_GIT", key: snapshot.repositoryIdentity });
     const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
-    database.upsertSourceObject(sourceObjectId, "LOCAL_GIT", snapshot.repositoryIdentity);
-    const revisionCreated = database.insertRevision({
-      id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: timestamp(),
-      sourceModifiedAt: null, normalizerVersion: GIT_NORMALIZER_VERSION, payloadReference: blob.relativePath,
-    });
-    database.transaction(() => {
-      database.insertRawObservation({
+    const persistedAt = timestamp();
+    const { created: revisionCreated } = persistCollectedRevision(database, {
+      collectionRunId,
+      sourceObject: { id: sourceObjectId, sourceType: "LOCAL_GIT", externalKey: snapshot.repositoryIdentity },
+      revision: {
+        id: revisionId, sourceObjectId, contentHash: blob.digest, collectedAt: persistedAt,
+        sourceModifiedAt: null, normalizerVersion: GIT_NORMALIZER_VERSION, payloadReference: blob.relativePath,
+      },
+      rawObservation: {
         id: stableId("raw", { revisionId, type: "GIT_SNAPSHOT" }), sourceRevisionId: revisionId,
         observationType: "GIT_SNAPSHOT", provenance: "LOCAL_FILE", dataClassification: "LOCAL_METADATA",
-        payloadReference: blob.relativePath, observedAt: timestamp(), sourceModifiedAt: null,
-      });
-      database.insertObservations(normalizeLocalGitSnapshot(snapshot, revisionId));
-      database.linkCollectionRevision(collectionRunId, sourceObjectId, revisionId, timestamp());
+        payloadReference: blob.relativePath, observedAt: persistedAt, sourceModifiedAt: null,
+      },
+      observations: normalizeLocalGitSnapshot(snapshot, revisionId),
+      observedAt: persistedAt,
     });
     let correlations = 0;
     if (options.sessionRevisionId) {
