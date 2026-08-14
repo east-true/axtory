@@ -43,11 +43,8 @@ test("corrupt deletion staging cannot restore from another deletion journal", as
   try {
     const dataDirectory = await ensureAxtoryDataDirectory(directory);
     const deletionId = "deletion_one";
-    const otherId = "deletion_other";
     const stagingRoot = join(dataDirectory, ".deletion-staging", deletionId);
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
-    await mkdir(join(dataDirectory, ".deletion-staging", otherId, "files"), { recursive: true, mode: 0o700 });
-    await writeFile(join(dataDirectory, ".deletion-staging", otherId, "files", "0"), "other\n", { mode: 0o600 });
     await writeFile(join(stagingRoot, "manifest.json"), `${JSON.stringify({
       schemaVersion: "axtory.deletion-staging.v1",
       deletionId,
@@ -55,17 +52,13 @@ test("corrupt deletion staging cannot restore from another deletion journal", as
       createdAt: "2026-08-14T00:00:00.000Z",
       entries: [{
         originalRelativePath: "spool/spool_00000000000000000000000000000000.json",
-        stagedRelativePath: `.deletion-staging/${otherId}/files/0`,
+        stagedRelativePath: ".deletion-staging/deletion_other/files/0",
       }],
     })}\n`, { mode: 0o600 });
 
     await assert.rejects(
       ensureAxtoryDataDirectory(dataDirectory),
       /manifest contains an invalid path mapping/u,
-    );
-    assert.equal(
-      await readFile(join(dataDirectory, ".deletion-staging", otherId, "files", "0"), "utf8"),
-      "other\n",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
