@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 
 import { reconcileDeletionStaging } from "./deletion-staging.js";
+import { reconcileIncompleteRevisions } from "./incomplete-revision-recovery.js";
 
 const MARKER = ".axtory-data-directory";
 const MARKER_CONTENT = "axtory.data-directory.v1\n";
@@ -50,6 +51,7 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
     }
   }
   await reconcileDeletionStaging(target);
+  await reconcileIncompleteRevisions(target);
   return target;
 }
 
