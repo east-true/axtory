@@ -8,6 +8,7 @@ import type { CodexThread } from "../connectors/codex/types.js";
 import { ContentAddressedBlobStore } from "./blob-store.js";
 import { ensureAxtoryDataDirectory } from "./data-directory.js";
 import { replaceDerivedEvidenceAtomically } from "./derived-storage.js";
+import { withDataMutationLock } from "./mutation-lock.js";
 import type { NormalizedObservation } from "./records.js";
 import { AxtoryDatabase } from "./storage.js";
 
@@ -116,49 +117,58 @@ export async function renormalizeStoredRevisions(options: {
     let rawEvidenceUnavailable = 0;
 
     for (const revision of revisions) {
-      const raw = database.rawObservationForRevision(revision.revisionId);
-      if (!raw) {
+      const outcome = await withDataMutationLock(dataDirectory, async () => {
+        const raw = database.rawObservationForRevision(revision.revisionId);
+        if (!raw) return { kind: "RAW_UNAVAILABLE" as const };
+        const current = CURRENT_VERSION[raw.observationType];
+        if (current === undefined) {
+          return {
+            kind: "UNSUPPORTED" as const,
+            reason: UNSUPPORTED_REASON[raw.observationType] ??
+              `Re-normalization is not implemented for ${raw.observationType}.`,
+          };
+        }
+        if (revision.normalizerVersion === current) return { kind: "CURRENT" as const };
+        if (options.dryRun) return { kind: "RENORMALIZED" as const, inserted: 0, invalidated: 0 };
+
+        const bytes = await blobs.read(raw.payloadReference, RAW_LIMIT_BYTES);
+        let payload: unknown;
+        try {
+          payload = JSON.parse(new TextDecoder().decode(bytes));
+        } catch (error) {
+          throw new Error(`raw view for ${revision.revisionId} is not valid JSON`, { cause: error });
+        }
+        const existing = database.observationsForRevision(revision.revisionId);
+        const observations = renormalizeObservations(
+          raw.observationType, payload, revision.revisionId, storedCoverage(existing),
+        );
+        const result = replaceDerivedEvidenceAtomically({
+          databasePath,
+          revisionId: revision.revisionId,
+          observations,
+          normalizerVersion: current,
+        });
+        return {
+          kind: "RENORMALIZED" as const,
+          inserted: result.inserted,
+          invalidated: result.analysisRecordsInvalidated,
+        };
+      });
+
+      if (outcome.kind === "RAW_UNAVAILABLE") {
         rawEvidenceUnavailable += 1;
-        continue;
-      }
-      const current = CURRENT_VERSION[raw.observationType];
-      if (current === undefined) {
-        const reason = UNSUPPORTED_REASON[raw.observationType] ??
-          `Re-normalization is not implemented for ${raw.observationType}.`;
-        const key = `${revision.sourceType}:${raw.observationType}`;
+      } else if (outcome.kind === "UNSUPPORTED") {
+        const key = `${revision.sourceType}:${outcome.reason}`;
         const entry = unsupported.get(key);
         if (entry) entry.revisions += 1;
-        else unsupported.set(key, { sourceType: revision.sourceType, revisions: 1, reason });
-        continue;
-      }
-      if (revision.normalizerVersion === current) {
+        else unsupported.set(key, { sourceType: revision.sourceType, revisions: 1, reason: outcome.reason });
+      } else if (outcome.kind === "CURRENT") {
         alreadyCurrent += 1;
-        continue;
-      }
-      if (options.dryRun) {
+      } else {
+        observationsReplaced += outcome.inserted;
+        analysisRecordsInvalidated += outcome.invalidated;
         renormalizedRevisionIds.push(revision.revisionId);
-        continue;
       }
-      const bytes = await blobs.read(raw.payloadReference, RAW_LIMIT_BYTES);
-      let payload: unknown;
-      try {
-        payload = JSON.parse(new TextDecoder().decode(bytes));
-      } catch (error) {
-        throw new Error(`raw view for ${revision.revisionId} is not valid JSON`, { cause: error });
-      }
-      const existing = database.observationsForRevision(revision.revisionId);
-      const observations = renormalizeObservations(
-        raw.observationType, payload, revision.revisionId, storedCoverage(existing),
-      );
-      const result = replaceDerivedEvidenceAtomically({
-        databasePath,
-        revisionId: revision.revisionId,
-        observations,
-        normalizerVersion: current,
-      });
-      observationsReplaced += result.inserted;
-      analysisRecordsInvalidated += result.analysisRecordsInvalidated;
-      renormalizedRevisionIds.push(revision.revisionId);
     }
 
     return {
