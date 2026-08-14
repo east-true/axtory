@@ -52,7 +52,7 @@ import { compareUsageWindows, renderUsageComparison } from "./analysis/usage-com
 const SOURCE_TYPE_NAMES: Readonly<Record<string, string>> = {
   claude: "CLAUDE_CODE", codex: "CODEX", fixture: "FIXTURE",
   gemini: "ADDITIONAL_AI_GEMINI_CLI", opencode: "ADDITIONAL_AI_OPENCODE",
-  cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER",
+  cursor: "ADDITIONAL_AI_CURSOR", aider: "ADDITIONAL_AI_AIDER", kimi: "ADDITIONAL_AI_KIMI_CODE",
 };
 
 /**
