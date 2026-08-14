@@ -54,7 +54,8 @@ export async function runWalkingSkeleton(options: WalkingSkeletonOptions): Promi
     const sourceObjectId = stableId("source", { sourceType: "FIXTURE", key: fixture.sourceObjectKey });
     const revisionId = stableId("revision", { sourceObjectId, contentHash: blob.digest });
     const persistedAt = timestamp();
-    const { created: revisionCreated } = persistCollectedRevision(database, {
+    const { created: revisionCreated } = await persistCollectedRevision(database, {
+      dataDirectory,
       collectionRunId,
       sourceObject: { id: sourceObjectId, sourceType: "FIXTURE", externalKey: fixture.sourceObjectKey },
       revision: {
