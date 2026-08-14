@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 
@@ -8,6 +8,7 @@ import { withDataMutationLock } from "./mutation-lock.js";
 
 const MARKER = ".axtory-data-directory";
 const MARKER_CONTENT = "axtory.data-directory.v1\n";
+const MUTATION_LOCK = ".axtory-mutation-lock";
 
 function containsPath(directory: string, candidate: string): boolean {
   const nested = relative(directory, candidate);
@@ -39,7 +40,7 @@ export async function ensureAxtoryDataDirectory(path: string): Promise<string> {
       "blobs",
       "output.json",
       ".deletion-staging",
-      ".axtory-mutation-lock",
+      MUTATION_LOCK,
     ]);
     const unexpected = (await readdir(target)).filter((entry) => !knownLegacyEntries.has(entry));
     if (unexpected.length > 0) {
@@ -78,6 +79,22 @@ export async function purgeAxtoryDataDirectory(path: string, confirmation: strin
   }
   await withDataMutationLock(target, async () => {
     await verifyMarker(resolve(target, MARKER));
-    await rm(target, { recursive: true, force: false });
+    // The mutation lease lives inside the data directory. Removing the directory recursively here
+    // would publish an unlocked path before the protected purge operation had actually returned.
+    // Delete every AXtory payload while the lease remains present; the lease itself is released by
+    // withDataMutationLock after this callback finishes.
+    for (const entry of await readdir(target)) {
+      if (entry === MUTATION_LOCK) continue;
+      await rm(resolve(target, entry), { recursive: true, force: false });
+    }
   });
+  try {
+    await rmdir(target);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // A new AXtory operation may legitimately recreate the directory after the purge lease releases.
+    // Its data is newer than the completed purge and must never be recursively removed by this call.
+    if (code === "ENOENT" || code === "ENOTEMPTY" || code === "EEXIST") return;
+    throw error;
+  }
 }
