@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { canonicalJson, sha256 } from "../../core/canonical-json.js";
 import { isoTimestamp } from "../../core/time.js";
@@ -96,12 +96,15 @@ export class KimiCodeSourceApi implements AdditionalAiSourceApi {
       } catch {
         continue;
       }
-      if (record.sessionId !== externalId || typeof record.sessionDir !== "string") continue;
+      if (record.sessionId !== externalId || typeof record.sessionDir !== "string" ||
+          typeof record.workDir !== "string" || resolve(record.workDir) !== this.projectDirectory) continue;
       const directory = isAbsolute(record.sessionDir)
         ? resolve(record.sessionDir)
         : resolve(this.home, record.sessionDir);
-      // The index is Vendor data; refuse a record that points outside the Kimi Code home.
-      if (directory !== this.home && !directory.startsWith(`${this.home}/`)) {
+      // The index is Vendor data; refuse a record that points outside the Kimi Code home. `relative`
+      // keeps the containment check correct on both POSIX and Windows instead of assuming `/`.
+      const nested = relative(this.home, directory);
+      if (nested === ".." || nested.startsWith(`..${sep}`) || isAbsolute(nested)) {
         throw new Error("Kimi Code session directory escapes the configured home");
       }
       return directory;
